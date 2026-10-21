@@ -28,7 +28,6 @@ Timber is a device tree viewer. It loads a device tree from a compiled blob, fro
 **Non-goals (for now)**
 
 - Editing device trees or writing changes back to source.
-- Byte-for-byte compatibility with `dtc` output ordering or phandle numbering.
 - Parsing the full Kconfig language. We read `.config` values and dts Makefiles, which is enough to work out the active boards.
 - An integrated SSH terminal.
 
@@ -149,15 +148,27 @@ struct Property { name: String, value: Vec<u8> }
 
 // Only for trees compiled from source:
 struct SourceMap {
-    files: Vec<String>,                               // VFS paths
-    nodes: HashMap<NodeId, Vec<SourceLoc>>,           // every block that touched the node
-    props: HashMap<(NodeId, String), Vec<SourceLoc>>, // definition + overrides, in order
-    deleted: Vec<(String /*path*/, SourceLoc)>,       // /delete-node/ etc., for "why is it gone"
+    files: Vec<String>,              // VFS paths
+    nodes: Vec<NodeSources>,         // indexed by NodeId
+    deleted: Vec<(String, SourceLoc)>, // "/path" or "/path:prop" removed by /delete-*/
 }
-struct SourceLoc { file: u32, line: u32, col: u32, kind: LocKind } // Defined | Overridden | Referenced(&label) | Deleted
+struct NodeSources {
+    node: Vec<SourceLoc>,                    // every block that touched the node
+    props: Vec<(String, Vec<SourceLoc>)>,    // definition + overrides, in order
+}
+struct SourceLoc { file: u32, line: u32, col: u32, kind: LocKind } // Defined | Overridden | Deleted (+ Overlay in M4)
+
+// Compiler output:
+struct Compiled {
+    tree: Tree,
+    source_map: SourceMap,
+    diagnostics: Vec<Diagnostic>,  // { severity, file, line, col, message, snippet }
+    plugin: bool,                  // source was /plugin/
+    inputs: Vec<String>,           // every file read: what the folder watcher must watch
+}
 ```
 
-- All types derive `serde` so they can cross Tauri IPC when needed.
+- `serde` derives are added when a type first has to cross Tauri IPC (M3). Compilation runs in the UI's wasm (§3), so the tree may never need to.
 - A loaded tree is a `Document`: `{ tree, source_map: Option<SourceMap>, origin: Origin }`.
   - `Origin` is one of: file, folder+board, or SSH host + live/fdt.
   - Up to two documents can be loaded at once, a *primary* and a *comparison*, for diffing.
@@ -174,7 +185,7 @@ struct SourceLoc { file: u32, line: u32, col: u32, kind: LocKind } // Defined | 
 
 ### 5.2 DTS compiler
 
-The compiler follows dtc semantics wherever that is reasonable.
+**Fidelity target ([D-013](DECISIONS.md)):** the compiled tree is structurally identical to `cpp | dtc` output. That means the same nodes, properties, order, values and phandle numbers. This is verified against every board and overlay in the kernel (§11).
 
 **Preprocessor (cpp subset)**
 - Directives: `#include "…"` / `<…>`, `/include/`, `#define` (object-like and function-like, `#`, `##`, `__VA_ARGS__`), `#undef`, `#if` / `#ifdef` / `#ifndef` / `#elif` / `#else` / `#endif`, `defined()`, `#error`.
@@ -201,6 +212,19 @@ A missing include is a clear error that names the file and the line that include
 - Same-named nodes merge, properties are overridden, and every merge records a `SourceLoc`.
 - Phandles are assigned to referenced nodes that don't have one.
 - In `/plugin/` mode, `&label { }` becomes `fragment@N`. Unresolved labels go into `__fixups__`.
+
+**dtc behaviours we replicate** (each found by the kernel golden test):
+- **Deleted nodes and properties keep their place.** A later re-add revives them in their original position instead of appending.
+- **New phandles take the lowest unused number**, assigned in tree order (depth-first, properties in order).
+- **References resolve before `/omit-if-no-ref/` removal.** References from nodes that end up removed still count, and still allocate phandles.
+- **Redundant `name` properties are dropped**: a `name` equal to the node's base name.
+- **`&{label/sub/path}`** is a path whose first component is a label.
+- **In `/plugin/` mode:**
+  - `&{/path} { }` always becomes a fragment with `target-path`
+  - `&label { }` merges into the overlay's own node when an earlier fragment defined that label; otherwise it becomes a fragment
+- **Error recovery:** a fully parsed statement whose target is missing is reported without skipping the next statement.
+
+**Folder loading** follows **file** symlinks (e.g. `include/dt-bindings/input/linux-event-codes.h` → `uapi`) but not **directory** symlinks (`scripts/dtc/include-prefixes/*`), because the include resolver emulates those.
 
 **Errors**
 - Errors carry `file:line:col` plus the offending line.
@@ -438,7 +462,16 @@ timber/
 **Golden tests against `dtc`**
 - Gated on `dtc` being on PATH, which it is in CI.
 - Compile fixture `.dts` files with both `dtc` and Timber, then compare the trees semantically: same nodes, properties and values, with phandles normalised.
-- Fixtures: small hand-written cases plus a vendored slice of a real kernel tree (e.g. one Rockchip and one i.MX board with their includes).
+- **Fixtures:** hand-written sources in `crates/timber-core/tests/fixtures` (MIT), covering includes, macros, overrides, deletions, `/omit-if-no-ref/`, `/bits/`, expressions and an overlay.
+- **Kernel test:** compiles every board `.dts` and overlay `.dtso` in a kernel checkout and compares each against `dtc`. Set these environment variables:
+  - `TIMBER_KERNEL_DIR` (required)
+  - `TIMBER_KERNEL_ARCH` (default `arm64`)
+  - `TIMBER_KERNEL_FILTER` (optional)
+
+  No kernel sources are vendored ([D-014](DECISIONS.md)).
+- **Result, 2026-10-21** (torvalds/linux `a804c57`): 1,900 arm64, 1,767 arm and 66 riscv sources compared, **0 differences**.
+- **A sparse checkout is enough:** `arch/*/boot/dts`, `include/dt-bindings`, `include/uapi` and `scripts/dtc`.
+- **Speed:** an 813-node RK3588 board (23 input files) compiles in about 21 ms in a native release build. Measure with `cargo run --release -p timber-core --example compile -- <kernel> <board.dts>`.
 
 **Other tests**
 - **Live fetch:** tar → `Tree` conversion tested with captured tarballs.

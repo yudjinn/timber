@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: MIT
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/soc.h>
+
+&i2c1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	cam: camera@36 {
+		compatible = "acme,camera";
+		reg = <0x36>;
+		clocks = <&cru CLK_I2C(3)>;
+		port { cam_out: endpoint { remote-endpoint = <&csi_in>; }; };
+	};
+};
+
+&{/soc} {
+	csi {
+		compatible = "acme,csi";
+		port { csi_in: endpoint { remote-endpoint = <&cam_out>; }; };
+	};
+};

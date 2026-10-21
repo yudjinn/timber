@@ -4,17 +4,18 @@ Each milestone ends in a usable build. Tick items off as they land and note the 
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
-## M1 · Core library (`timber-core`)
-- [~] Tree model (arena, paths, aliases, phandle index, labels from `__symbols__`). Draft exists.
-- [~] DTB reader/writer. Draft exists.
-- [ ] Lexer + C integer expression evaluator
-- [ ] Preprocessor: includes, object- and function-like macros, conditionals, line markers
-- [ ] `Vfs` trait + kernel-style include path resolution
-- [ ] DTS parser, merge semantics, `/delete-*`, phandle assignment, `/plugin/` fragments
-- [ ] Source map (definitions, overrides, deletions)
-- [ ] Value formatting (phandle specifiers, `reg`/`ranges` grouping, strings, cells, bytes)
-- [ ] DTS decompile (export)
-- [ ] Tests, plus golden comparisons against `dtc`
+## M1 · Core library (`timber-core`) — done 2026-10-21
+- [x] Tree model (arena, paths, aliases, phandle index, labels from `__symbols__`)
+- [x] DTB reader/writer
+- [x] Lexer + C integer expression evaluator
+- [x] Preprocessor: includes, object- and function-like macros (`#`, `##`, variadic, multi-line calls), conditionals, line markers
+- [x] `Vfs` trait + kernel-style include path resolution
+- [x] DTS parser, merge semantics, `/delete-*`, phandle assignment, `/plugin/` fragments + `__fixups__`/`__local_fixups__`, `/omit-if-no-ref/`
+- [x] Source map (definitions, overrides, deletions) and structured diagnostics with error recovery
+- [x] Value formatting (phandle specifiers, `reg`/`ranges` grouping, strings, cells, bytes) + reverse reference index
+- [x] DTS decompile (export); decompile → recompile round-trip test
+- [x] Unit tests (31), fixtures vs `dtc`, and a kernel golden test: 3,733 boards/overlays, 0 differences (D-013, D-014)
+- [x] `examples/compile.rs` dev tool (timing + diagnostics + `--dts` output)
 
 ## M2 · UI skeleton (web build)
 - [ ] `timber-ui` crate (Leptos CSR + trunk), `Backend` trait, `WebBackend`

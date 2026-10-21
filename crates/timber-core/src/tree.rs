@@ -28,7 +28,10 @@ impl Node {
     }
 
     pub fn prop(&self, name: &str) -> Option<&[u8]> {
-        self.props.iter().find(|p| p.name == name).map(|p| p.value.as_slice())
+        self.props
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.value.as_slice())
     }
 
     pub fn has_prop(&self, name: &str) -> bool {
@@ -38,7 +41,10 @@ impl Node {
     pub fn set_prop(&mut self, name: &str, value: Vec<u8>) {
         match self.props.iter_mut().find(|p| p.name == name) {
             Some(p) => p.value = value,
-            None => self.props.push(Property { name: name.to_string(), value }),
+            None => self.props.push(Property {
+                name: name.to_string(),
+                value,
+            }),
         }
     }
 }
@@ -62,7 +68,12 @@ impl Tree {
     pub const ROOT: NodeId = 0;
 
     pub fn new() -> Self {
-        Tree { nodes: vec![Node::default()], mem_reserve: Vec::new(), boot_cpuid: 0, phandles: HashMap::new() }
+        Tree {
+            nodes: vec![Node::default()],
+            mem_reserve: Vec::new(),
+            boot_cpuid: 0,
+            phandles: HashMap::new(),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -83,7 +94,11 @@ impl Tree {
 
     pub fn add_child(&mut self, parent: NodeId, name: impl Into<String>) -> NodeId {
         let id = self.nodes.len();
-        self.nodes.push(Node { name: name.into(), parent: Some(parent), ..Node::default() });
+        self.nodes.push(Node {
+            name: name.into(),
+            parent: Some(parent),
+            ..Node::default()
+        });
         self.nodes[parent].children.push(id);
         id
     }
@@ -98,7 +113,9 @@ impl Tree {
         if name.contains('@') {
             return None;
         }
-        let mut matches = children.iter().filter(|&&c| self.nodes[c].base_name() == name);
+        let mut matches = children
+            .iter()
+            .filter(|&&c| self.nodes[c].base_name() == name);
         match (matches.next(), matches.next()) {
             (Some(&id), None) => Some(id),
             _ => None,
@@ -180,7 +197,9 @@ impl Tree {
     }
 
     pub fn prop_strings(&self, id: NodeId, name: &str) -> Vec<&str> {
-        let Some(v) = self.prop(id, name) else { return Vec::new() };
+        let Some(v) = self.prop(id, name) else {
+            return Vec::new();
+        };
         v.split(|&b| b == 0)
             .filter(|s| !s.is_empty())
             .filter_map(|s| std::str::from_utf8(s).ok())
@@ -202,7 +221,8 @@ impl Tree {
     }
 
     pub fn phandle(&self, id: NodeId) -> Option<u32> {
-        self.prop_u32(id, "phandle").or_else(|| self.prop_u32(id, "linux,phandle"))
+        self.prop_u32(id, "phandle")
+            .or_else(|| self.prop_u32(id, "linux,phandle"))
     }
 
     pub fn by_phandle(&self, phandle: u32) -> Option<NodeId> {
@@ -210,7 +230,48 @@ impl Tree {
     }
 
     pub fn subtree_size(&self, id: NodeId) -> usize {
-        1 + self.nodes[id].children.iter().map(|&c| self.subtree_size(c)).sum::<usize>()
+        1 + self.nodes[id]
+            .children
+            .iter()
+            .map(|&c| self.subtree_size(c))
+            .sum::<usize>()
+    }
+
+    /// Removes the given nodes with their subtrees, compacting ids. Returns the mapping
+    /// from old to new ids (`None` for removed nodes). Call [`Tree::finalize`] afterwards.
+    pub fn remove_subtrees(
+        &mut self,
+        remove: &std::collections::HashSet<NodeId>,
+    ) -> Vec<Option<NodeId>> {
+        fn copy(
+            old: &mut [Node],
+            new: &mut Tree,
+            old_id: NodeId,
+            new_id: NodeId,
+            remove: &std::collections::HashSet<NodeId>,
+            map: &mut [Option<NodeId>],
+        ) {
+            let children = std::mem::take(&mut old[old_id].children);
+            for c in children {
+                if remove.contains(&c) {
+                    continue;
+                }
+                let id = new.add_child(new_id, std::mem::take(&mut old[c].name));
+                new.nodes[id].labels = std::mem::take(&mut old[c].labels);
+                new.nodes[id].props = std::mem::take(&mut old[c].props);
+                map[c] = Some(id);
+                copy(old, new, c, id, remove, map);
+            }
+        }
+        let mut old = std::mem::take(&mut self.nodes);
+        let mut map = vec![None; old.len()];
+        map[Self::ROOT] = Some(Self::ROOT);
+        let mut new = Tree::new();
+        new.nodes[Self::ROOT].labels = std::mem::take(&mut old[Self::ROOT].labels);
+        new.nodes[Self::ROOT].props = std::mem::take(&mut old[Self::ROOT].props);
+        copy(&mut old, &mut new, Self::ROOT, Self::ROOT, remove, &mut map);
+        self.nodes = new.nodes;
+        map
     }
 
     /// Rebuilds derived indexes. Call after constructing or mutating a tree.
@@ -230,7 +291,11 @@ impl Tree {
                 .props
                 .iter()
                 .filter_map(|p| {
-                    let end = p.value.iter().position(|&b| b == 0).unwrap_or(p.value.len());
+                    let end = p
+                        .value
+                        .iter()
+                        .position(|&b| b == 0)
+                        .unwrap_or(p.value.len());
                     let path = std::str::from_utf8(&p.value[..end]).ok()?;
                     Some((p.name.clone(), path.to_string()))
                 })

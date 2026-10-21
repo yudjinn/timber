@@ -104,3 +104,19 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Diff any two trees: typically the live tree from SSH against the tree compiled from the source folder.
   - Phandle numbers differ between compilations, so phandle cells are rewritten to the target node's path before comparing.
   - Details are in DESIGN §7.
+
+## D-013 · The DTS compiler matches `dtc` exactly
+- **Status:** Accepted · 2026-10-21. Replaces the original non-goal "byte-for-byte dtc compatibility".
+- **Decision:** Compiled trees must be structurally identical to `cpp | dtc` output: the same nodes, properties, order, values and phandle numbers. The behaviours this requires are listed in DESIGN §5.2.
+- **Why:**
+  - **It turned out to be achievable.** The kernel golden test reached zero differences across all 3,733 arm64/arm/riscv boards and overlays.
+  - **It makes the diff more trustworthy (D-012).** A tree compiled from source matches what `dtc` would have produced for the device. Even phandle numbers can be compared directly when the device was built from the same sources.
+  - **Users see the same property and child order** they would see with `dtc -O dts`.
+
+## D-014 · Golden tests use an external kernel checkout
+- **Status:** Accepted · 2026-10-21
+- **Decision:**
+  - Hand-written MIT fixtures live in the repo.
+  - The full-kernel comparison runs against a checkout pointed to by `TIMBER_KERNEL_DIR`. A sparse, shallow clone is enough. CI does the same.
+- **Why:** Kernel dts files and `dt-bindings` headers are under a mix of GPL-2.0 and dual licenses. Vendoring them would bring that licensing into the repo. Testing against the whole kernel is also far more thorough than a vendored slice.
+

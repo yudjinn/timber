@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: MIT
+#include <dt-bindings/soc.h>
+
+/memreserve/ 0x10000000 0x4000;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "acme,soc";
+	interrupt-parent = <&gic>;
+
+	aliases {
+		serial0 = &uart0;
+		i2c1 = &i2c1;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		cpu0: cpu@0 { device_type = "cpu"; reg = <0>; enable-method = "psci"; next-level-cache = <&l2>; };
+		cpu1: cpu@1 { device_type = "cpu"; reg = <1>; enable-method = "psci"; next-level-cache = <&l2>; };
+		l2: l2-cache { compatible = "cache"; cache-level = <2>; };
+	};
+
+	soc: soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		gic: interrupt-controller@fd400000 {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <3>;
+			interrupt-controller;
+			reg = <0x0 0xfd400000 0 0x10000>, <0x0 0xfd460000 0 0xc0000>;
+		};
+
+		cru: clock-controller@fdd20000 {
+			compatible = "acme,cru";
+			reg = <0x0 0xfdd20000 0x0 0x1000>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+		};
+
+		uart0: serial@fe650000 {
+			compatible = "acme,uart", "snps,dw-apb-uart";
+			reg = <0x0 0xfe650000 0x0 0x100>;
+			interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cru CLK_UART0>;
+			reg-shift = /bits/ 8 <2>;
+			status = "disabled";
+		};
+
+		i2c1: i2c@fe5a0000 {
+			compatible = "acme,i2c";
+			reg = <0x0 0xfe5a0000 0x0 0x1000>;
+			clocks = <&cru CLK_I2C(1)>, <&cru (CLK_I2C(1) + 1)>;
+			clock-names = "i2c", "pclk";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		gpio0: gpio@fdd60000 {
+			compatible = "acme,gpio";
+			reg = <0x0 0xfdd60000 0x0 0x100>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		pinctrl: pinctrl {
+			compatible = "acme,pinctrl";
+			/omit-if-no-ref/ uart0_xfer: uart0-xfer { pins = <PIN(0, 3) RK_FUNC_GPIO>; };
+			/omit-if-no-ref/ unused_pins: unused-pins { pins = <PIN(1, 7) 2>; };
+			i2c1_xfer: i2c1-xfer { pins = <PIN(2, 0) 1>, <PIN(2, 1) 1>; };
+		};
+
+		removed: removed@0 { compatible = "acme,removed"; };
+	};
+};

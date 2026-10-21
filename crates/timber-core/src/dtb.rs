@@ -27,9 +27,15 @@ fn be64(data: &[u8], off: usize) -> Result<u64> {
 }
 
 fn cstr(data: &[u8], off: usize) -> Result<&str> {
-    let tail = data.get(off..).ok_or_else(|| Error(format!("string offset {off:#x} out of range")))?;
-    let end = tail.iter().position(|&b| b == 0).ok_or_else(|| Error("unterminated string in DTB".into()))?;
-    std::str::from_utf8(&tail[..end]).map_err(|_| Error(format!("invalid UTF-8 in DTB name at {off:#x}")))
+    let tail = data
+        .get(off..)
+        .ok_or_else(|| Error(format!("string offset {off:#x} out of range")))?;
+    let end = tail
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| Error("unterminated string in DTB".into()))?;
+    std::str::from_utf8(&tail[..end])
+        .map_err(|_| Error(format!("invalid UTF-8 in DTB name at {off:#x}")))
 }
 
 fn align4(n: usize) -> usize {
@@ -50,8 +56,16 @@ pub fn parse(data: &[u8]) -> Result<Tree> {
     let off_rsv = be32(data, 16)? as usize;
     let version = be32(data, 20)?;
     let boot_cpuid = be32(data, 28)?;
-    let size_strings = if version >= 3 { be32(data, 32)? as usize } else { total.saturating_sub(off_strings) };
-    let size_struct = if version >= 17 { be32(data, 36)? as usize } else { total.saturating_sub(off_struct) };
+    let size_strings = if version >= 3 {
+        be32(data, 32)? as usize
+    } else {
+        total.saturating_sub(off_strings)
+    };
+    let size_struct = if version >= 17 {
+        be32(data, 36)? as usize
+    } else {
+        total.saturating_sub(off_struct)
+    };
 
     let strings = data
         .get(off_strings..off_strings.saturating_add(size_strings).min(total))
@@ -98,17 +112,26 @@ pub fn parse(data: &[u8]) -> Result<Tree> {
                 }
             }
             FDT_END_NODE => {
-                stack.pop().ok_or_else(|| Error("unbalanced END_NODE in DTB".into()))?;
+                stack
+                    .pop()
+                    .ok_or_else(|| Error("unbalanced END_NODE in DTB".into()))?;
             }
             FDT_PROP => {
                 let len = be32(st, pos)? as usize;
                 let name_off = be32(st, pos + 4)? as usize;
                 pos += 8;
-                let value = st.get(pos..pos + len).ok_or_else(|| Error("property value out of range".into()))?;
+                let value = st
+                    .get(pos..pos + len)
+                    .ok_or_else(|| Error("property value out of range".into()))?;
                 pos = align4(pos + len);
                 let name = cstr(strings, name_off)?;
-                let &node = stack.last().ok_or_else(|| Error("property outside of any node".into()))?;
-                tree.node_mut(node).props.push(crate::Property { name: name.to_string(), value: value.to_vec() });
+                let &node = stack
+                    .last()
+                    .ok_or_else(|| Error("property outside of any node".into()))?;
+                tree.node_mut(node).props.push(crate::Property {
+                    name: name.to_string(),
+                    value: value.to_vec(),
+                });
             }
             FDT_NOP => {}
             FDT_END => break,
@@ -160,7 +183,11 @@ pub fn write(tree: &Tree) -> Vec<u8> {
         out.st.extend(FDT_END_NODE.to_be_bytes());
     }
 
-    let mut out = Out { st: Vec::new(), strings: Vec::new(), offsets: HashMap::new() };
+    let mut out = Out {
+        st: Vec::new(),
+        strings: Vec::new(),
+        offsets: HashMap::new(),
+    };
     emit(tree, Tree::ROOT, &mut out);
     out.st.extend(FDT_END.to_be_bytes());
 
