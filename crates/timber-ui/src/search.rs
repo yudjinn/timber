@@ -116,6 +116,7 @@ pub fn match_node(tree: &Tree, id: NodeId, query: &str) -> Option<Hit> {
 }
 
 /// Whole-tree search across names, labels, aliases, and compatible strings.
+#[derive(Clone)]
 pub struct SearchIndex {
     aliases: Vec<(String, NodeId)>,
     depth: Vec<usize>,

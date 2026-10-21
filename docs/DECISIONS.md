@@ -45,7 +45,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:** File-only viewing with nothing to install is useful, and it costs little if we plan for it from the start.
 
 ## D-006 · Web build: opening folders is Chromium-only
-- **Status:** Accepted · 2026-10-21
+- **Status:** Superseded by D-017 · 2026-10-21
 - **Decision:**
   - The web build opens folders with `showDirectoryPicker` and reads files lazily.
   - On Firefox/Safari, folder opening is greyed out ("Requires Chrome/Edge or the desktop app"). Opening single files still works.
@@ -135,4 +135,50 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:**
   - The palette passed the validator in both modes. The worst adjacent pair still has CVD ΔE 9.1 in light mode and 8.4 in dark, and normal-vision ΔE 19.6 / 19.3.
   - Three light-mode hues are below 3:1 contrast against the background. That's acceptable because every node also has a visible text label and an outline, so kind is never shown by colour alone. The legend and the panel's kind text also name the kind.
+
+## D-017 · Web build: source folders work in every browser
+- **Status:** Accepted · 2026-10-21. Supersedes D-006.
+- **Decision:** The web build adds folders with `<input type="file" webkitdirectory>` in all browsers.
+- **Why:**
+  - D-006 rested on a wrong premise: that `webkitdirectory` reads every file into memory up front. It doesn't. The browser lists the files as lazy `File` handles, and contents are read only when we ask.
+  - We read only `.dts`/`.dtsi`/`.dtso`/`.h` files, and in a kernel tree only the dts, `dt-bindings` and `uapi` directories. Picking a whole kernel checkout therefore costs a directory listing plus tens of MB of reads.
+- **Trade-off:** There's no handle to re-read later, so picking up edits means adding the folder again. `showDirectoryPicker` (Chromium-only, needs unstable `web-sys` APIs) could add a Reload button later; the desktop app gets a real file watcher.
+
+## D-018 · One Sources panel; DTBs are annotated from source folders
+- **Status:** Accepted · 2026-10-21
+- **Decision:** A single **Sources** panel replaces "Open…". It holds:
+  - the tree shown: a DTB, a board from the folders, or later a live device
+  - any number of source folders and files
+
+  When a DTB is shown and sources exist, the app matches the DTB to a board by root `compatible`/`model`, compiles that board, and maps nodes by path. That gives DTB nodes source locations, "differs from source" markers (references compared by target path), "not in source" and "only in source". Details are in DESIGN §7a.
+- **Why:** You want to load a DTB *and* point at kernel/BSP directories, both to find where things are defined and to compare.
+- **Scope:** This brings the folder half of M4 and a light version of M6 forward, ahead of the Tauri shell (M3), as a new milestone M2b.
+
+## D-019 · Image export: SVG and PNG
+- **Status:** Accepted · 2026-10-21
+- **Decision:**
+  - The Export menu offers SVG (vector, for documentation) and PNG (2×, for sharing), alongside `.dts`/`.dtb`.
+  - Defaults: the whole web, light theme, legend and title included.
+  - One `Painter`-based drawing routine renders the screen, PNG and SVG.
+- **Why:** You want people to be able to share views and put them in documentation.
+
+## D-020 · Shortcuts popup on first visit
+- **Status:** Accepted · 2026-10-21
+- **Decision:** A keyboard and mouse help popup appears on the first visit, with "Don't show on startup". `?` and a toolbar button reopen it.
+
+## D-021 · Matching DTBs to bespoke boards
+- **Status:** Accepted · 2026-10-21. Refines D-018.
+- **Decision:** Matching runs in two stages:
+  - **Shortlist** by file name, then root `compatible`, then `model`.
+  - **Confirm by content:** compile the top candidates and score node coverage and property agreement.
+
+  It's backed up by:
+  - a manual board override, remembered per DTB file name, plus "use this .dts file"
+  - a build-defines field (`-D`)
+  - "likely set by U-Boot" hints on commonly patched properties
+  - labels from the source for DTBs without `__symbols__`
+
+  Details are in DESIGN §7a.
+- **Why:** Custom boards frequently keep an EVK's `compatible`, have variants that share one, or live in Yocto layers and vendor kernels with unusual layouts. A content score makes the custom board win over the EVK it was copied from. You said that Yocto is the common case, that BSP/vendor kernels vary wildly (so the override and folder sourcing are what matter most), and that U-Boot is the only boot-time patcher to assume for now.
+- **Validation:** The cheap scan, which follows `#include`s for variant boards, agrees with a full compile for 3,317 of 3,326 kernel arm64/arm boards. The rest declare no root `compatible` anywhere in their own sources, or build it from a macro. Content scoring covers those.
 

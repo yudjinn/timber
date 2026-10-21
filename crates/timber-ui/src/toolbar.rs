@@ -2,14 +2,13 @@
 
 use leptos::html;
 use leptos::prelude::*;
-use timber_core::{NodeId, dtb, format};
+use timber_core::NodeId;
 use web_sys::KeyboardEvent;
 
-use crate::app::open_files;
 use crate::backend::BackendHandle;
 use crate::search::{Hit, MatchKind};
 use crate::state::AppState;
-use crate::util::{file_stem, highlight};
+use crate::util::highlight;
 
 pub const SEARCH_INPUT_ID: &str = "global-search";
 
@@ -162,35 +161,8 @@ fn GlobalSearch() -> impl IntoView {
 #[component]
 pub fn Toolbar() -> impl IntoView {
     let state = expect_context::<AppState>();
-    let backend = expect_context::<BackendHandle>();
     let has_doc = move || state.doc.with(Option::is_some);
     let desktop = state.capabilities.desktop;
-    let backend_store = StoredValue::new(backend.clone());
-
-    let export = move |as_dtb: bool| {
-        let Some(doc) = state.document() else { return };
-        let backend = backend_store.get_value();
-        let stem = file_stem(&doc.name).to_string();
-        let (name, mime, data) = if as_dtb {
-            (
-                format!("{stem}.dtb"),
-                "application/octet-stream",
-                dtb::write(&doc.tree),
-            )
-        } else {
-            (
-                format!("{stem}.dts"),
-                "text/plain",
-                format::to_dts(&doc.tree).into_bytes(),
-            )
-        };
-        leptos::task::spawn_local(async move {
-            if let Err(e) = backend.0.save_file(&name, mime, data).await {
-                state.notify(format!("Export failed: {e}"), true);
-            }
-        });
-    };
-
     let diag_label = move || {
         state.doc.with(|d| {
             let d = d.as_ref()?;
@@ -211,7 +183,17 @@ pub fn Toolbar() -> impl IntoView {
             <div class="brand" aria-hidden="true">"timber"</div>
             <GlobalSearch />
             <div class="toolbar-group">
-                <button class="primary" on:click=move |_| open_files(state, backend.clone())>"Open…"</button>
+                <button
+                    class="primary"
+                    title="Open DTB/DTS files and add source folders"
+                    on:click=move |_| state.sources_open.set(true)
+                >
+                    "Sources"
+                    {move || {
+                        let n = state.sources.with(|s| s.entries.len());
+                        (n > 0).then(|| view! { <span class="count">{n}</span> })
+                    }}
+                </button>
                 <button
                     class:unavailable=!desktop
                     aria-disabled=(!desktop).to_string()
@@ -234,7 +216,7 @@ pub fn Toolbar() -> impl IntoView {
                 let title = format!("{} · {} nodes", d.name, d.tree.len());
                 view! {
                     <span class="doc-name" title=title>
-                        {d.name.clone()}
+                        {d.short_name().to_string()}
                         {d.overlay.then(|| view! { <span class="badge">"overlay"</span> })}
                     </span>
                 }
@@ -267,11 +249,13 @@ pub fn Toolbar() -> impl IntoView {
                 >
                     "Reset"
                 </button>
-                <button disabled=move || !has_doc() title="Download as DTS source" on:click=move |_| export(false)>
-                    ".dts"
-                </button>
-                <button disabled=move || !has_doc() title="Download as a compiled DTB" on:click=move |_| export(true)>
-                    ".dtb"
+                <ExportMenu />
+                <button class="ghost icon" title="Shortcuts (?)" aria-label="Shortcuts" on:click=move |_| state.help_open.set(true)>
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        <path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                        <circle cx="8" cy="11.6" r=".9" fill="currentColor" />
+                    </svg>
                 </button>
                 <button
                     class="ghost icon"
@@ -314,5 +298,116 @@ fn theme_icon(pref: crate::state::ThemePref) -> impl IntoView {
             </svg>
         }
         .into_any(),
+    }
+}
+
+fn save(
+    state: AppState,
+    backend: BackendHandle,
+    file: Result<(String, &'static str, Vec<u8>), String>,
+) {
+    match file {
+        Ok((name, mime, data)) => leptos::task::spawn_local(async move {
+            match backend.0.save_file(&name, mime, data).await {
+                Ok(()) => state.notify(format!("Saved {name}"), false),
+                Err(e) => state.notify(format!("Export failed: {e}"), true),
+            }
+        }),
+        Err(e) => state.notify(format!("Export failed: {e}"), true),
+    }
+}
+
+#[component]
+fn ExportMenu() -> impl IntoView {
+    use crate::export::{ExportOptions, ExportTheme, ImageFormat, export_image, export_tree};
+
+    let state = expect_context::<AppState>();
+    let backend = StoredValue::new(expect_context::<BackendHandle>());
+    let open = RwSignal::new(false);
+    let opts = RwSignal::new(ExportOptions::default());
+    let image = move |format: ImageFormat| {
+        open.set(false);
+        save(
+            state,
+            backend.get_value(),
+            export_image(state, format, opts.get_untracked()),
+        );
+    };
+    let tree = move |as_dtb: bool| {
+        open.set(false);
+        save(
+            state,
+            backend.get_value(),
+            export_tree(state, as_dtb).ok_or_else(|| "nothing open".to_string()),
+        );
+    };
+    let theme_value = move || match opts.get().theme {
+        ExportTheme::Light => "light",
+        ExportTheme::Dark => "dark",
+        ExportTheme::Current => "current",
+    };
+
+    view! {
+        <div class="menu">
+            <button
+                disabled=move || state.doc.with(Option::is_none)
+                aria-haspopup="true"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                "Export ▾"
+            </button>
+            <Show when=move || open.get()>
+                <div class="menu-backdrop" on:click=move |_| open.set(false)></div>
+                <div class="menu-panel" role="menu">
+                    <h4>"Image of the web"</h4>
+                    <div class="segmented" role="radiogroup" aria-label="What to include">
+                        <button class:on=move || opts.get().whole on:click=move |_| opts.update(|o| o.whole = true)>
+                            "Whole web"
+                        </button>
+                        <button class:on=move || !opts.get().whole on:click=move |_| opts.update(|o| o.whole = false)>
+                            "Current view"
+                        </button>
+                    </div>
+                    <label class="field">
+                        "Theme"
+                        <select
+                            prop:value=theme_value
+                            on:change=move |ev| {
+                                let theme = match event_target_value(&ev).as_str() {
+                                    "dark" => ExportTheme::Dark,
+                                    "current" => ExportTheme::Current,
+                                    _ => ExportTheme::Light,
+                                };
+                                opts.update(|o| o.theme = theme);
+                            }
+                        >
+                            <option value="light">"Light"</option>
+                            <option value="dark">"Dark"</option>
+                            <option value="current">"Same as app"</option>
+                        </select>
+                    </label>
+                    <label class="check">
+                        <input type="checkbox" prop:checked=move || opts.get().title on:change=move |ev| opts.update(|o| o.title = event_target_checked(&ev)) />
+                        "Title"
+                    </label>
+                    <label class="check">
+                        <input type="checkbox" prop:checked=move || opts.get().legend on:change=move |ev| opts.update(|o| o.legend = event_target_checked(&ev)) />
+                        "Legend"
+                    </label>
+                    <div class="row">
+                        <button class="primary" title="Vector image: scales cleanly in documents" on:click=move |_| image(ImageFormat::Svg)>
+                            "SVG"
+                        </button>
+                        <button title="2× resolution image for sharing" on:click=move |_| image(ImageFormat::Png)>"PNG"</button>
+                    </div>
+                    <h4>"Device tree"</h4>
+                    <div class="row">
+                        <button title="Decompiled DTS source" on:click=move |_| tree(false)>".dts source"</button>
+                        <button title="Compiled DTB blob" on:click=move |_| tree(true)>".dtb blob"</button>
+                    </div>
+                </div>
+            </Show>
+        </div>
     }
 }

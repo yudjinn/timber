@@ -8,43 +8,18 @@ use leptos::prelude::*;
 use timber_core::Severity;
 use wasm_bindgen::JsCast;
 
+use crate::actions::{add_files, add_folder, open_files, show_board};
 use crate::backend::{BackendHandle, WebBackend, read_file_list};
-use crate::doc::{InputFile, Loaded, load};
 use crate::graph::GraphView;
+use crate::help::{HelpDialog, show_help_on_start};
 use crate::kind::Kind;
 use crate::panel::NodePanel;
 use crate::popup::ChildPopup;
+use crate::sources_panel::SourcesPanel;
 use crate::state::{AppState, ThemePref};
 use crate::toolbar::{SEARCH_INPUT_ID, Toolbar};
 
 const THEME_KEY: &str = "timber.theme";
-
-/// Loads files into the app, asking which is the main source when that's ambiguous.
-pub fn load_files(state: AppState, files: Vec<InputFile>, main: Option<String>) {
-    match load(&files, main.as_deref()) {
-        Ok(Loaded::Doc(doc)) => {
-            let name = doc.name.clone();
-            let nodes = doc.tree.len();
-            let errors = doc.error_count();
-            state.set_document(*doc);
-            if errors == 0 {
-                state.notify(format!("Opened {name}: {nodes} nodes"), false);
-            }
-        }
-        Ok(Loaded::Choose(names)) => state.choose.set(Some((files, names))),
-        Err(e) => state.notify(e, true),
-    }
-}
-
-pub fn open_files(state: AppState, backend: BackendHandle) {
-    leptos::task::spawn_local(async move {
-        match backend.0.open_files().await {
-            Ok(Some(files)) => load_files(state, files, None),
-            Ok(None) => {}
-            Err(e) => state.notify(format!("Couldn't open files: {e}"), true),
-        }
-    });
-}
 
 fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
@@ -69,6 +44,7 @@ pub fn App() -> impl IntoView {
     let state = AppState::new(backend.0.capabilities());
     provide_context(state);
     provide_context(backend.clone());
+    show_help_on_start(state);
 
     // Theme: stored preference, applied to <html data-theme>, resolved against the OS.
     if let Some(saved) = storage().and_then(|s| s.get_item(THEME_KEY).ok().flatten()) {
@@ -131,6 +107,17 @@ pub fn App() -> impl IntoView {
         if is_typing(&ev) || ev.ctrl_key() || ev.meta_key() || ev.alt_key() {
             return;
         }
+        if key == "?" {
+            state.help_open.update(|o| *o = !*o);
+            return;
+        }
+        if key == "Escape"
+            && (state.help_open.get_untracked() || state.sources_open.get_untracked())
+        {
+            state.help_open.set(false);
+            state.sources_open.set(false);
+            return;
+        }
         let Some(doc) = state.document() else { return };
         match key.as_str() {
             "f" | "F" => state.graph.fit(&doc.tree),
@@ -171,7 +158,7 @@ pub fn App() -> impl IntoView {
         };
         leptos::task::spawn_local(async move {
             match read_file_list(files).await {
-                Ok(files) if !files.is_empty() => load_files(state, files, None),
+                Ok(files) if !files.is_empty() => add_files(state, files),
                 Ok(_) => {}
                 Err(e) => state.notify(format!("Couldn't read dropped files: {e}"), true),
             }
@@ -194,6 +181,9 @@ pub fn App() -> impl IntoView {
             </main>
             <Diagnostics />
             <ChooseMain />
+            <SourcesPanel />
+            <HelpDialog />
+            <BusyView />
             <ToastView />
             <div class="drop-hint" aria-hidden="true">"Drop .dtb / .dts files to open"</div>
         </div>
@@ -204,23 +194,30 @@ pub fn App() -> impl IntoView {
 fn EmptyState() -> impl IntoView {
     let state = expect_context::<AppState>();
     let backend = expect_context::<BackendHandle>();
+    let b2 = backend.clone();
     view! {
         <Show when=move || state.doc.with(Option::is_none)>
             <div class="empty">
                 <div class="empty-card">
                     <h1>"Open a device tree"</h1>
                     <p>
-                        "A compiled " <code>".dtb"</code> " / " <code>".dtbo"</code> ", or a " <code>".dts"</code>
-                        " source with the " <code>".dtsi"</code> " and header files it includes."
+                        "Open a compiled " <code>".dtb"</code> " / " <code>".dtbo"</code> " or " <code>".dts"</code>
+                        " files, and add the kernel or BSP folders they come from to see where every node is defined."
                     </p>
-                    <button class="primary" on:click={
-                        let backend = backend.clone();
-                        move |_| open_files(state, backend.clone())
-                    }>"Open files…"</button>
-                    <p class="muted small">"Or drop files anywhere in the window."</p>
+                    <div class="empty-actions">
+                        <button class="primary" on:click={
+                            let backend = backend.clone();
+                            move |_| open_files(state, backend.clone())
+                        }>"Open DTB / DTS files…"</button>
+                        <button on:click={
+                            let backend = b2.clone();
+                            move |_| add_folder(state, backend.clone())
+                        }>"Add source folder…"</button>
+                    </div>
+                    <p class="muted small">"Or drop files anywhere in the window. Press ? for shortcuts."</p>
                     {(!state.capabilities.desktop).then(|| view! {
                         <p class="muted small">
-                            "The desktop app adds SSH to live devices, BSP folders, and opening sources in your editor."
+                            "Everything stays in your browser; nothing is uploaded. The desktop app adds SSH to live devices and opening sources in your editor."
                         </p>
                     })}
                 </div>
@@ -304,31 +301,45 @@ fn Diagnostics() -> impl IntoView {
 fn ChooseMain() -> impl IntoView {
     let state = expect_context::<AppState>();
     move || {
-        let (_, names) = state.choose.get()?;
+        let names = state.choose.get()?;
         let items = names
             .into_iter()
-            .map(|name| {
-                let n = name.clone();
+            .map(|path| {
+                let p = path.clone();
+                let shown = path.strip_prefix("files/").unwrap_or(&path).to_string();
                 view! {
                     <li>
                         <button on:click=move |_| {
-                            if let Some((files, _)) = state.choose.get_untracked() {
-                                state.choose.set(None);
-                                load_files(state, files, Some(n.clone()));
-                            }
-                        }>{name}</button>
+                            state.choose.set(None);
+                            show_board(state, &p);
+                        }>{shown}</button>
                     </li>
                 }
             })
             .collect_view();
         Some(view! {
             <div class="modal-backdrop" on:click=move |_| state.choose.set(None)>
-                <div class="modal" role="dialog" aria-label="Choose the main file" on:click=|ev| ev.stop_propagation()>
-                    <h3>"Which file is the board?"</h3>
-                    <p class="muted small">"The others stay available for #include."</p>
+                <div class="modal" role="dialog" aria-label="Choose the board to show" on:click=|ev| ev.stop_propagation()>
+                    <h3>"Which board should be shown?"</h3>
+                    <p class="muted small">"All the files were added to Sources; the others stay available for #include."</p>
                     <ul class="choose">{items}</ul>
                 </div>
             </div>
+        })
+    }
+}
+
+#[component]
+fn BusyView() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    move || {
+        state.busy.get().map(|msg| {
+            view! {
+                <div class="busy" role="status">
+                    <span class="spinner" aria-hidden="true"></span>
+                    {msg}
+                </div>
+            }
         })
     }
 }

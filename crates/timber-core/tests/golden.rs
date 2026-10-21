@@ -260,3 +260,54 @@ fn kernel_tree() {
             .join("\n")
     );
 }
+
+/// The cheap board scan (used to match blobs to boards) agrees with a full compile.
+#[test]
+fn kernel_board_scan() {
+    let Ok(dir) = std::env::var("TIMBER_KERNEL_DIR") else {
+        eprintln!("skipping: set TIMBER_KERNEL_DIR to a kernel checkout");
+        return;
+    };
+    let root = PathBuf::from(dir);
+    let arch = std::env::var("TIMBER_KERNEL_ARCH").unwrap_or_else(|_| "arm64".into());
+    let dts_dir = format!("arch/{arch}/boot/dts");
+    let vfs = load_dir(&root, &["arch", "include/dt-bindings"]);
+    let resolver = timber_core::vfs::IncludeResolver::new(&vfs);
+    let (mut agree, mut empty, mut differ) = (0, 0, Vec::new());
+    for path in timber_core::vfs::Vfs::paths(&vfs)
+        .filter(|p| p.starts_with(&dts_dir) && p.ends_with(".dts"))
+    {
+        let scanned = timber_core::bsp::scan_board_in(&vfs, &resolver, path);
+        let compiled = dts::compile(&vfs, path).tree;
+        let real: Vec<&str> = compiled.prop_strings(Tree::ROOT, "compatible");
+        if scanned.compatible.is_empty() {
+            empty += 1;
+        } else if real.starts_with(
+            &scanned
+                .compatible
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ) {
+            // Equal, or a .dtsi appended generic entries; matching uses the leading ones.
+            agree += 1;
+        } else {
+            differ.push(format!(
+                "{path}: scanned {:?} compiled {real:?}",
+                scanned.compatible
+            ));
+        }
+    }
+    let total = agree + empty + differ.len();
+    eprintln!(
+        "board scan {arch}: {agree}/{total} agree, {empty} declare no root compatible, {} differ",
+        differ.len()
+    );
+    for d in differ.iter().take(8) {
+        eprintln!("  {d}");
+    }
+    assert!(
+        agree * 100 >= total * 97,
+        "scan agrees on fewer than 97% of boards"
+    );
+}

@@ -1,5 +1,6 @@
 //! The web: a canvas showing the visible part of the tree as a force-directed graph.
 
+pub mod painter;
 pub mod render;
 pub mod sim;
 
@@ -352,7 +353,7 @@ fn frame(
     let _ = ctx.set_transform(dpr, 0.0, 0.0, dpr, 0.0, 0.0);
     graph.sim.with_value(|sim| {
         render::draw(
-            ctx,
+            &mut painter::CanvasPainter::new(ctx),
             &render::Frame {
                 tree: &doc.tree,
                 kinds: &doc.kinds,
@@ -365,6 +366,8 @@ fn frame(
                 popup,
                 references: &references,
                 pal: &pal,
+                origin: (0.0, 0.0),
+                all_labels: false,
             },
         );
     });

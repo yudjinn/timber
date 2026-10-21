@@ -38,7 +38,12 @@ impl Compiled {
 
 /// Compiles the DTS at `main` (a path in `vfs`); includes resolve against the same `vfs`.
 pub fn compile(vfs: &dyn Vfs, main: &str) -> Compiled {
-    let pre = preprocess(vfs, main, &[]);
+    compile_with_defines(vfs, main, &[])
+}
+
+/// Like [`compile`], with preprocessor defines (`-D NAME=VALUE`) as the build passes them.
+pub fn compile_with_defines(vfs: &dyn Vfs, main: &str, defines: &[(&str, &str)]) -> Compiled {
+    let pre = preprocess(vfs, main, defines);
     let mut compiled = compile_preprocessed(&pre.text);
     let mut diagnostics = pre.diagnostics;
     diagnostics.append(&mut compiled.diagnostics);

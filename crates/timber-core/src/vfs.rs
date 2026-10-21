@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 /// Read-only file access. Paths are `/`-separated and relative to the opened folder.
 pub trait Vfs {
@@ -18,7 +19,8 @@ pub trait Vfs {
 /// An in-memory [`Vfs`].
 #[derive(Debug, Clone, Default)]
 pub struct MemVfs {
-    files: BTreeMap<String, Vec<u8>>,
+    // Shared buffers: cloning a VFS (e.g. to add or drop a folder) doesn't copy file contents.
+    files: BTreeMap<String, Arc<[u8]>>,
 }
 
 impl MemVfs {
@@ -27,18 +29,40 @@ impl MemVfs {
     }
 
     pub fn insert(&mut self, path: &str, data: impl Into<Vec<u8>>) {
-        self.files.insert(normalize(path), data.into());
+        self.insert_shared(path, Arc::from(data.into()));
+    }
+
+    pub fn insert_shared(&mut self, path: &str, data: Arc<[u8]>) {
+        self.files.insert(normalize(path), data);
     }
 
     pub fn with(mut self, path: &str, data: impl Into<Vec<u8>>) -> Self {
         self.insert(path, data);
         self
     }
+
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// Keeps only the files whose path satisfies `keep`.
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        self.files.retain(|p, _| keep(p));
+    }
+
+    /// Files with their shared contents.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &Arc<[u8]>)> {
+        self.files.iter().map(|(p, d)| (p.as_str(), d))
+    }
 }
 
 impl Vfs for MemVfs {
     fn read(&self, path: &str) -> Option<Cow<'_, [u8]>> {
-        self.files.get(path).map(|d| Cow::Borrowed(d.as_slice()))
+        self.files.get(path).map(|d| Cow::Borrowed(&d[..]))
     }
 
     fn exists(&self, path: &str) -> bool {

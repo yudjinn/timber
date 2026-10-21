@@ -1,6 +1,8 @@
 # Timber
 
-A device tree viewer. Open a `.dtb`, a `.dts` with its includes, or (soon) a BSP folder or a live device over SSH. The tree is drawn as a web you grow outward: click a node to see its children, then pick the ones to add.
+A device tree viewer. Open a `.dtb` or `.dts`, add the kernel/BSP folders it comes from, and (soon, in the desktop app) connect to a live device over SSH. The tree is drawn as a web you grow outward: click a node to see its children, then pick the ones to add.
+
+With source folders added, a DTB is matched to the board it was built from, so every node shows where it's defined and overridden, and anything the bootloader changed is flagged. Views export as SVG or PNG for documentation.
 
 Status and plans live in [`docs/`](docs/README.md): design, decision log, and roadmap.
 

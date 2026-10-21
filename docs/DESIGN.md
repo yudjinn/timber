@@ -101,8 +101,9 @@ trait Backend {
 | Feature | Desktop | Web |
 |---|---|---|
 | Open `.dtb` / `.dts` files | ✅ | ✅ |
-| Open BSP folder | ✅ native dialog | ⚠️ Chromium only (`showDirectoryPicker`, lazy reads). Firefox/Safari: greyed out, *Requires Chrome/Edge or the desktop app* |
-| Recompile when the folder changes | ✅ file watcher | ⚠️ Chromium: manual "Reload" button |
+| Add source folders | ✅ native dialog | ✅ all browsers (`<input webkitdirectory>`; only source files are read) ([D-017](DECISIONS.md)) |
+| Recompile when the folder changes | ✅ file watcher | ⚠️ re-add the folder |
+| Export PNG / SVG | ✅ | ✅ |
 | Apply overlays | ✅ | ✅ |
 | Board detection from config | ✅ | ✅ (config file upload) |
 | Source viewer | ✅ | ✅ |
@@ -315,6 +316,62 @@ Overlays are applied onto a base tree **on request**, using the "Apply overlays�
 
 ---
 
+## 7a. Sources ([D-018](DECISIONS.md))
+
+There's one **Sources** panel for everything loaded. It replaces the earlier "Open…" button.
+
+### What it holds
+- **Tree shown**, which is what the web displays. One of:
+  - a **DTB/DTBO file**
+  - a **board from the source folders**, compiled on the fly
+  - later, a **live device** (desktop only)
+- **Source folders and files:** any number of folders (kernel trees, BSP layers) and loose files. Each entry shows what was found, e.g. "linux: kernel tree · arm64, arm · 3,520 files · 3,667 boards". Entries can be removed.
+
+### Building the combined VFS
+- Each entry's files are mounted under its own name: `linux/arch/...`, `bsp/...`.
+- Only source files are read: `.dts`, `.dtsi`, `.dtso`, `.h`.
+- In a kernel tree, only `arch/*/boot/dts/**`, `include/dt-bindings/**` and `include/uapi/**` are read.
+- Includes resolve from the includer's own folder first, then from the other entries in list order. Putting a BSP above the kernel therefore lets it take priority.
+
+### The board index
+- Each board `.dts` is scanned cheaply, without a full compile, for the root `compatible` and `model` it declares itself.
+- That's enough to list boards and to match a DTB to one.
+
+### Annotating a DTB from sources ([D-021](DECISIONS.md))
+
+Custom embedded boards often keep their EVK's `compatible` or live out of tree, so matching is done in two stages.
+
+1. **Shortlist** candidates from the board index, ranked by:
+   1. the **file name** (`acme-gw.dtb` ↔ `acme-gw.dts`, since build systems name the blob after the source)
+   2. root `compatible` (identical list, then same first entry, then most shared)
+   3. `model`
+2. **Confirm by content.** Compile the top 6 candidates with the build defines and score each against the DTB:
+   - **½ × node coverage:** the share of the DTB's nodes found at the same path
+   - **½ × property agreement:** the share of compared properties that are equal, with references compared by target path
+
+   The highest score wins. The panel shows the board, its confidence and the reasons, e.g. "file name + identical compatible · 97% match".
+3. **Override:** a searchable board picker, or "use this .dts file" directly. The choice is remembered per DTB file name in browser storage, and "Auto" goes back to matching.
+4. **Map nodes:** the chosen board is compiled and each DTB node is mapped to its source node by path. The node panel then shows:
+   - "defined at / overridden at" source locations
+   - **"differs from source"** with the source value
+   - **"not in source"** for DTB-only nodes
+   - **"only in source"** for properties missing from the DTB
+   - **labels from source**, for DTBs built without `__symbols__`
+5. **Bootloader hints:** differences in properties U-Boot commonly patches are tagged *"likely set by U-Boot"*. These are `/memory*/reg`, anything under `/chosen`, `/reserved-memory`, `mac-address`, `local-mac-address`, `serial-number` and `status`. U-Boot is assumed to be the only boot-time patcher for now.
+6. **Diagnostics:** the compile's messages appear in the compiler messages drawer.
+
+**Build defines:** a field in the Sources panel (`BOARD_REV=2, FEATURE_X`) is passed to the preprocessor as `-D` for every compile, so `#if`-dependent sources build the way the real build does.
+
+**Yocto tip** (shown in the panel): add the kernel's `tmp/work-shared/<MACHINE>/kernel-source`, which has the layer's DTS patches applied. Or add the kernel plus your layer's `files/` directories.
+
+This is the lightweight form of the diff. M6 adds whole-tree comparison and diff colouring.
+
+### Node panel when there's no source info
+- **No sources added:** an **"Add source folder…"** button that opens the Sources flow.
+- **Sources added but no board matched:** a "Choose board…" button.
+
+---
+
 ## 8. User interface
 
 ### 8.1 Layout
@@ -408,11 +465,39 @@ Overlays are applied onto a base tree **on request**, using the "Apply overlays�
 - **Referenced by:** reverse phandle index, clickable.
 - **Actions:** expand children, collapse, focus, copy path, copy as DTS snippet.
 
-### 8.6 Export
+### 8.6 Export ([D-019](DECISIONS.md))
 
-Export the current tree as `.dts` (decompiled) or `.dtb`.
+An **Export ▾** menu in the toolbar.
+
+**Tree formats:**
+- `.dts` (decompiled)
+- `.dtb`
+
+**Images:**
+- **SVG**, a vector image that scales cleanly in documentation, with real text
+- **PNG**, at 2× resolution for sharing
+
+**Options** (defaults in bold):
+- what to include: **the whole web** or the current view
+- theme: **light**, dark, or the current one
+- **legend** on/off
+- **title** on/off. The title shows the file or board name, the `model`, and the number of nodes shown out of the total.
+
+**Rendering:**
+- One drawing routine serves the screen, PNG and SVG, through a small `Painter` interface with a canvas implementation and an SVG implementation. Exports therefore look exactly like the screen.
+- Selection rings, hover and reference edges are left out of exports.
+
+**Saving:**
 - Desktop: native save dialog.
 - Web: browser download.
+
+### 8.7 Shortcuts help ([D-020](DECISIONS.md))
+
+- **When it shows:** a shortcuts popup appears on first visit. "Don't show on startup" (stored in browser storage) turns that off, and `?` or the toolbar's `?` button reopens it any time.
+- **Groups:**
+  - **Anywhere:** `/` / `Ctrl+K` search, `F` fit, `Esc` close popup, `Del` remove from web, `?` help
+  - **Child popup:** type to filter, `↑↓`, `⏎` add and open, `Ctrl+⏎` add, `Ctrl+A` add all shown, `⌫` up
+  - **Mouse:** click opens children, double-click collapses or expands, drag moves, scroll zooms
 
 ---
 
@@ -505,7 +590,7 @@ See [ROADMAP.md](ROADMAP.md) for milestones and progress.
 ## 13. Resolved questions
 
 All four open questions from the first draft are resolved. See [DECISIONS.md](DECISIONS.md):
-- **Web folders:** Chromium only for now (D-006).
+- **Web folders:** first Chromium only (D-006), then all browsers via `webkitdirectory` (D-017).
 - **known_hosts:** writes go to Timber's own file (D-007).
 - **Editor launch:** `$VISUAL`/`$EDITOR`, then VS Code, then a command in Settings (D-008).
 - **Overlay application:** in scope, as part of milestone 4 (D-009).

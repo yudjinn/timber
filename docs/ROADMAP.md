@@ -29,6 +29,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Verified in headless Chromium (Playwright) on a real RK3588 DTB and the DTS fixtures; no console errors
 - [ ] Later: check the Playwright smoke test into the repo and run it in CI
 
+## M2b · Sources, image export, shortcuts help (D-017…D-021) — done 2026-10-21
+- [x] Core: board scan (root `compatible`/`model`, following includes for variant boards), board ranking, DTB↔source node mapping, property comparison by target path
+- [x] Core: two-stage matching (file name shortlist + content score), U-Boot hints, build defines (D-021). Shared-buffer `MemVfs`
+- [x] Sources panel: tree shown (DTB file / board from sources), folders and files list, add/remove, searchable board picker, per-DTB override remembered, build defines, Yocto tip
+- [x] Folder reading in every browser (`webkitdirectory`, source files only; kernel trees read only dts/dt-bindings/uapi), combined VFS with per-entry mounts
+- [x] Node panel: source locations for DTB nodes, "differs from source" with source value, "not in source", "only in source", "likely set by U-Boot", labels borrowed from source (also used for references and search), "Add source folder…" / "Choose board…"
+- [x] Export menu: SVG, PNG (2×), `.dts`, `.dtb`; whole web / current view, theme, legend, title; one `Painter` for screen, PNG, SVG
+- [x] Shortcuts popup on first visit; `?` and a toolbar button reopen it
+- [x] Verified in headless Chromium: kernel checkout (8,442 source files, 3,728 boards) added as a folder in ~10 s; a U-Boot-patched Rock 5B DTB auto-matched at 100% with bootargs/MAC flagged; SVG/PNG downloads rendered
+- [x] Kernel test `kernel_board_scan`: cheap scan agrees with full compiles on 3,317 / 3,326 boards
+
 ## M3 · Desktop shell (`timber-desktop`)
 - [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`
 - [ ] Native open/save dialogs

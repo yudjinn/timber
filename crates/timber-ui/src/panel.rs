@@ -3,10 +3,14 @@
 use std::sync::Arc;
 
 use leptos::prelude::*;
-use timber_core::format::{Seg, format_prop};
+use timber_core::bsp;
+use timber_core::format::{Seg, format_prop, format_prop_text};
 use timber_core::source_map::LocKind;
+use timber_core::source_map::SourceMap;
 use timber_core::{NodeId, Tree};
 
+use crate::actions::add_folder;
+use crate::backend::BackendHandle;
 use crate::doc::Document;
 use crate::kind::Kind;
 use crate::state::AppState;
@@ -45,11 +49,8 @@ fn status_chip(doc: &Document, id: NodeId) -> impl IntoView + use<> {
     })
 }
 
-fn loc_text(doc: &Document, kind: LocKind, file: u32, line: u32) -> String {
-    let sm = doc.source_map.as_ref();
-    let file = sm
-        .and_then(|s| s.files.get(file as usize))
-        .map_or("?", String::as_str);
+fn loc_text(sm: &SourceMap, kind: LocKind, file: u32, line: u32) -> String {
+    let file = sm.files.get(file as usize).map_or("?", String::as_str);
     let short = file.rsplit('/').next().unwrap_or(file);
     let verb = match kind {
         LocKind::Defined => "defined",
@@ -57,6 +58,49 @@ fn loc_text(doc: &Document, kind: LocKind, file: u32, line: u32) -> String {
         LocKind::Deleted => "deleted",
     };
     format!("{verb} {short}:{line}")
+}
+
+/// A banner explaining where source information is (or isn't) coming from.
+fn source_notice(state: AppState, doc: &Document, id: NodeId) -> Option<AnyView> {
+    let backend = use_context::<BackendHandle>();
+    if doc.source_map.is_some() {
+        return None;
+    }
+    if state.sources.with_untracked(|s| s.is_empty()) {
+        let backend = backend?;
+        return Some(
+            view! {
+                <div class="notice">
+                    <span>"No source information for this DTB."</span>
+                    <button class="small" on:click=move |_| add_folder(state, backend.clone())>"Add source folder…"</button>
+                </div>
+            }
+            .into_any(),
+        );
+    }
+    match &doc.link {
+        None => Some(
+            view! {
+                <div class="notice">
+                    <span>"No source board matched this DTB."</span>
+                    <button class="small" on:click=move |_| state.sources_open.set(true)>"Choose board…"</button>
+                </div>
+            }
+            .into_any(),
+        ),
+        Some(link) if link.map.get(id).copied().flatten().is_none() && !bsp::is_generated(&doc.tree, id) => {
+            let board = link.board.rsplit('/').next().unwrap_or(&link.board).to_string();
+            Some(
+                view! {
+                    <div class="notice warn">
+                        {format!("Not in {board}: added at boot (U-Boot, an overlay) or the sources don't match.")}
+                    </div>
+                }
+                .into_any(),
+            )
+        }
+        Some(_) => None,
+    }
 }
 
 fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
@@ -84,10 +128,23 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
         })
         .collect_view();
 
-    let labels = node
-        .labels
+    let link = doc.link.as_ref();
+    let source_node = link.and_then(|l| l.map.get(id).copied().flatten());
+    let comparison = link
+        .zip(source_node)
+        .map(|(l, sid)| bsp::compare_node(tree, id, &l.tree, sid));
+    let path_str = tree.path(id);
+
+    // DTBs built without -@ borrow labels from the linked source (see Document::relinked).
+    let from_source = doc.borrowed_labels.get(id).copied().unwrap_or(false);
+    let label_list = node.labels.clone();
+    let has_labels = !label_list.is_empty();
+    let labels = label_list
         .iter()
-        .map(|l| view! { <span class="chip label">{format!("&{l}")}</span> })
+        .map(|l| {
+            let title = if from_source { "label from source" } else { "" };
+            view! { <span class="chip label" class:from-source=from_source title=title>{format!("&{l}")}</span> }
+        })
         .collect_view();
 
     let compatible = tree
@@ -115,20 +172,40 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                     .into_any()
             };
             let sources = doc
-                .source_map
-                .as_ref()
-                .map(|sm| {
-                    sm.prop(id, &p.name)
+                .source_for(id)
+                .map(|(sm, sid)| {
+                    sm.prop(sid, &p.name)
                         .iter()
-                        .map(|l| loc_text(&doc, l.kind, l.file, l.line))
+                        .map(|l| loc_text(sm, l.kind, l.file, l.line))
                         .collect::<Vec<_>>()
                         .join(" · ")
                 })
                 .filter(|s| !s.is_empty());
+            let differs = comparison.as_ref().is_some_and(|c| c.differs.contains(&p.name));
+            let only_here = comparison.as_ref().is_some_and(|c| c.only_a.contains(&p.name));
+            let source_value = differs
+                .then(|| {
+                    let (l, sid) = link.zip(source_node)?;
+                    let q = l.tree.node(sid).props.iter().find(|q| q.name == p.name)?;
+                    Some(format_prop_text(&l.tree, sid, q))
+                })
+                .flatten();
+            let bootloader = (differs || only_here) && bsp::likely_bootloader_patched(&path_str, &p.name);
             view! {
-                <div class="prop">
-                    <div class="prop-name">{p.name.clone()}</div>
+                <div class="prop" class:differs=differs || only_here>
+                    <div class="prop-name">
+                        {p.name.clone()}
+                        {differs.then(|| view! { <span class="chip warn">"differs from source"</span> })}
+                        {only_here.then(|| view! { <span class="chip warn">"not in source"</span> })}
+                        {bootloader.then(|| view! { <span class="chip">"likely set by U-Boot"</span> })}
+                    </div>
                     <div class="prop-value">{value}</div>
+                    {source_value.map(|v| view! {
+                        <div class="prop-source-value">
+                            <span class="muted">"source: "</span>
+                            {if v.is_empty() { "true".to_string() } else { v }}
+                        </div>
+                    })}
                     {sources.map(|s| view! { <div class="prop-src">{s}</div> })}
                 </div>
             }
@@ -145,12 +222,32 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
         .collect_view();
     let has_refs = !doc.referenced_by[id].is_empty();
 
-    let node_sources = doc.source_map.as_ref().map(|sm| {
-        sm.node(id)
+    let node_sources = doc.source_for(id).map(|(sm, sid)| {
+        sm.node(sid)
             .iter()
-            .map(|l| view! { <li>{loc_text(&doc, l.kind, l.file, l.line)}</li> })
+            .map(|l| view! { <li>{loc_text(sm, l.kind, l.file, l.line)}</li> })
             .collect_view()
     });
+
+    // Properties the source sets that the DTB doesn't have.
+    let only_in_source = link.zip(source_node).zip(comparison.as_ref()).and_then(|((l, sid), c)| {
+        (!c.only_b.is_empty()).then(|| {
+            c.only_b
+                .iter()
+                .filter_map(|name| {
+                    let q = l.tree.node(sid).props.iter().find(|q| &q.name == name)?;
+                    let v = format_prop_text(&l.tree, sid, q);
+                    Some(view! {
+                        <div class="prop">
+                            <div class="prop-name">{name.clone()}</div>
+                            <div class="prop-value muted">{if v.is_empty() { "true".to_string() } else { v }}</div>
+                        </div>
+                    })
+                })
+                .collect_view()
+        })
+    });
+    let notice = source_notice(state, &doc, id);
 
     let children = node.children.len();
     let path = tree.path(id);
@@ -171,7 +268,8 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                 </div>
             </header>
             <nav class="crumbs" aria-label="Path">{crumbs}</nav>
-            {(!node.labels.is_empty()).then(|| view! { <div class="chips">{labels}</div> })}
+            {has_labels.then(|| view! { <div class="chips">{labels}</div> })}
+            {notice}
             <div class="actions">
                 <button
                     disabled=children == 0
@@ -197,6 +295,13 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                 <h3>{format!("Properties ({})", node.props.len())}</h3>
                 <div class="props">{props}</div>
             </section>
+            {only_in_source.map(|rows| view! {
+                <section>
+                    <h3>"Only in source"</h3>
+                    <p class="muted small">"Set by the source but missing from this DTB."</p>
+                    <div class="props">{rows}</div>
+                </section>
+            })}
             {has_refs.then(|| view! {
                 <section>
                     <h3>"Referenced by"</h3>

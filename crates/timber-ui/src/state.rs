@@ -6,8 +6,9 @@ use leptos::prelude::*;
 use timber_core::{NodeId, Tree};
 
 use crate::backend::Capabilities;
-use crate::doc::{Document, InputFile};
+use crate::doc::Document;
 use crate::graph::sim::Sim;
+use crate::sources::{SharedSources, SourceSet};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
@@ -238,8 +239,13 @@ pub struct AppState {
     pub dark: RwSignal<bool>,
     pub toast: RwSignal<Option<Toast>>,
     pub diagnostics_open: RwSignal<bool>,
-    /// Files waiting for the user to pick which one is the main source.
-    pub choose: RwSignal<Option<(Vec<InputFile>, Vec<String>)>>,
+    /// Board paths waiting for the user to pick which one to show.
+    pub choose: RwSignal<Option<Vec<String>>>,
+    pub sources: RwSignal<SharedSources>,
+    pub sources_open: RwSignal<bool>,
+    pub help_open: RwSignal<bool>,
+    /// A long-running step in progress (reading a folder, matching a board).
+    pub busy: RwSignal<Option<String>>,
     pub capabilities: Capabilities,
 }
 
@@ -256,6 +262,10 @@ impl AppState {
             toast: RwSignal::new(None),
             diagnostics_open: RwSignal::new(false),
             choose: RwSignal::new(None),
+            sources: RwSignal::new(Arc::new(SourceSet::default())),
+            sources_open: RwSignal::new(false),
+            help_open: RwSignal::new(false),
+            busy: RwSignal::new(None),
             capabilities,
         }
     }
@@ -278,6 +288,13 @@ impl AppState {
         self.selected.set(Some(Tree::ROOT));
         self.popup.set(Some(Tree::ROOT));
         self.diagnostics_open.set(errors > 0);
+    }
+
+    /// Swaps in an updated version of the same tree (e.g. new source annotations), keeping
+    /// the web, selection, and popup as they are.
+    pub fn replace_document(&self, doc: Document) {
+        self.doc.set(Some(Arc::new(doc)));
+        self.graph.redraw();
     }
 
     /// Reveals `id` in the web, selects it, centres it, and opens its child popup.
