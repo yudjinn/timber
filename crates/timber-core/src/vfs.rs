@@ -178,10 +178,17 @@ impl<'a> IncludeResolver<'a> {
                 .take_while(|(a, b)| a == b)
                 .count()
         };
-        candidates
+        if let Some(best) = candidates
             .into_iter()
             .max_by_key(|p| (shared(p), std::cmp::Reverse(p.len())))
-            .map(str::to_string)
+        {
+            return Some(best.to_string());
+        }
+        // Last resort, for loose files opened without their folders: a unique basename.
+        match self.by_basename.get(basename(&norm)).map(Vec::as_slice) {
+            Some([only]) => Some(only.to_string()),
+            _ => None,
+        }
     }
 }
 
@@ -230,6 +237,26 @@ mod tests {
             r.resolve("dt-bindings/gpio/gpio.h", "bsp/dts/board.dts", false)
                 .as_deref(),
             Some("bsp/dts/include/dt-bindings/gpio/gpio.h")
+        );
+    }
+
+    #[test]
+    fn unique_basename_for_loose_files() {
+        let vfs = MemVfs::new()
+            .with("board.dts", "")
+            .with("soc.h", "")
+            .with("a/gpio.h", "")
+            .with("b/gpio.h", "");
+        let r = IncludeResolver::new(&vfs);
+        assert_eq!(
+            r.resolve("dt-bindings/soc.h", "board.dts", false)
+                .as_deref(),
+            Some("soc.h")
+        );
+        assert_eq!(
+            r.resolve("dt-bindings/gpio/gpio.h", "board.dts", false),
+            None,
+            "ambiguous"
         );
     }
 

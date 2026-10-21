@@ -120,3 +120,19 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - The full-kernel comparison runs against a checkout pointed to by `TIMBER_KERNEL_DIR`. A sparse, shallow clone is enough. CI does the same.
 - **Why:** Kernel dts files and `dt-bindings` headers are under a mix of GPL-2.0 and dual licenses. Vendoring them would bring that licensing into the repo. Testing against the whole kernel is also far more thorough than a vendored slice.
 
+## D-015 · Clicking a popup row toggles it
+- **Status:** Accepted · 2026-10-21. Refines D-011.
+- **Decision:**
+  - Clicking a child in the popup adds it, or removes it with its subtree if it's already in the web (marked ✓).
+  - The keyboard flow is unchanged: `Enter` drills down, `Ctrl+Enter` adds and stays.
+- **Why:** With checkmarks, the expected behaviour of a click is to toggle. It also gives a mouse-only way to prune the web without hunting for the node on the canvas.
+
+## D-016 · Node colours use the validated dataviz palette
+- **Status:** Accepted · 2026-10-21
+- **Decision:**
+  - The eight colour-coded kinds take the reference categorical palette, in fixed order, stepped separately for light and dark.
+  - Root and data-only nodes stay neutral grey.
+- **Why:**
+  - The palette passed the validator in both modes. The worst adjacent pair still has CVD ΔE 9.1 in light mode and 8.4 in dark, and normal-vision ΔE 19.6 / 19.3.
+  - Three light-mode hues are below 3:1 contrast against the background. That's acceptable because every node also has a visible text label and an outline, so kind is never shown by colour alone. The legend and the panel's kind text also name the kind.
+

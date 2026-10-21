@@ -353,12 +353,28 @@ Overlays are applied onto a base tree **on request**, using the "Apply overlaysâ
   - double-click to collapse a subtree (or expand all children if it's a leaf in the web)
 - **Keys:** `F` fits the view, `Del` removes the selected subtree from the web, `Esc` closes popups.
 - **Node styling:**
-  - coloured by kind: root, cpu, memory, interrupt-controller, gpio/pinctrl, clock, power/regulator, bus, device, data-only
+  - coloured by kind: device, cpu, bus, clock, interrupt-controller, power/regulator, gpio/pinctrl, memory, plus neutral grey for data-only and root ([D-016](DECISIONS.md))
+  - a node is classified in this order:
+    1. pin groups (under a pinctrl node, no `compatible`)
+    2. cpu
+    3. memory
+    4. GPIO, which wins over interrupt controller for GPIO banks
+    5. interrupt controller
+    6. clock
+    7. power
+    8. bus
+    9. any other node with `compatible` is a device; anything left is data
   - disabled nodes are dimmed and dashed
   - a "+N" badge shows hidden children
   - the selected node gets an accent ring
 - **Reference edges:** the selected node's phandle references are drawn as dashed edges to any visible targets.
 - **Rendering:** a `<canvas>` inside a Leptos component, run by a `requestAnimationFrame` loop that holds non-reactive simulation state. Leptos signals carry only *what* is visible and selected, never per-frame positions.
+- **Label culling:** labels are placed in priority order and skipped where they'd overlap one already placed. Zooming in reveals them. The priority order is:
+  1. selected, hovered and popup nodes, which are always shown
+  2. the root
+  3. expanded nodes
+  4. nodes with more children
+- **Phones:** below 760 px the panel moves under the graph and the legend starts collapsed.
 
 ### 8.3 Child popup (clicking a node)
 
@@ -372,7 +388,7 @@ Overlays are applied onto a base tree **on request**, using the "Apply overlaysâ
   - `Ctrl+A` adds all filtered children
   - `Backspace` in an empty filter goes back up to the parent
   - `Esc` closes
-- Clicking a row behaves like `Ctrl+Enter`; double-clicking behaves like `Enter`.
+- **Clicking a row toggles it:** it adds the child, or, if the child is already in the web (âœ“), removes it with its subtree. Double-clicking behaves like `Enter` ([D-015](DECISIONS.md)).
 
 ### 8.4 Global search (top-left)
 

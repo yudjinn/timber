@@ -17,14 +17,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Unit tests (31), fixtures vs `dtc`, and a kernel golden test: 3,733 boards/overlays, 0 differences (D-013, D-014)
 - [x] `examples/compile.rs` dev tool (timing + diagnostics + `--dts` output)
 
-## M2 · UI skeleton (web build)
-- [ ] `timber-ui` crate (Leptos CSR + trunk), `Backend` trait, `WebBackend`
-- [ ] Open `.dtb` / `.dts` files, by picker or drag and drop
-- [ ] Graph canvas: force layout, pan/zoom/drag, styling by node kind, legend
-- [ ] Child popup with type-to-filter and Enter / Ctrl+Enter / Backspace navigation
-- [ ] Global search with match-type chips; selecting a result adds the path to it
-- [ ] Node panel: properties, reference links, "referenced by", reference edges
-- [ ] Export `.dts` / `.dtb`; light/dark theme
+## M2 · UI skeleton (web build) — done 2026-10-21
+- [x] `timber-ui` crate (Leptos 0.8 CSR + trunk), `Backend` trait, `WebBackend`
+- [x] Open `.dtb` / `.dts` files, by picker or drag and drop; "which file is the board?" chooser; loose headers resolve by unique basename
+- [x] Graph canvas: force layout, pan/zoom/drag, styling by node kind, legend, label culling, `+N` hidden-children badges
+- [x] Child popup with type-to-filter and Enter / Ctrl+Enter / Ctrl+A / Backspace navigation; click toggles (D-015)
+- [x] Global search with match-type chips; selecting a result adds the path to it
+- [x] Node panel: properties, reference links, "referenced by", reference edges, per-property source locations
+- [x] Compiler messages drawer
+- [x] Export `.dts` / `.dtb`; light/dark/auto theme; phone layout
+- [x] Verified in headless Chromium (Playwright) on a real RK3588 DTB and the DTS fixtures; no console errors
+- [ ] Later: check the Playwright smoke test into the repo and run it in CI
 
 ## M3 · Desktop shell (`timber-desktop`)
 - [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`

@@ -1,7 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/timber-core"]
+members = ["crates/timber-core", "crates/timber-ui"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+
+[profile.release]
+lto = true
+
+[profile.release.package.timber-ui]
+opt-level = "s"
