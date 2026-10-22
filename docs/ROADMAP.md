@@ -45,6 +45,12 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] "Nothing is uploaded" wording in the Sources panel and empty state
 - [x] Verified with a real directory handle (OPFS) in headless Chromium: pruning, 100% match, Reload picks up an edit
 
+## M2d · Differences on the graph (D-023) — done 2026-10-22
+- [x] Per-node diff classification on link (same / differs n / not in source) with subtree counts
+- [x] Graph pills, dashed ring for not-in-source, amber hidden-children badges; included in exports
+- [x] Popup row pills, panel header chip, toolbar "N differ from source", Sources summary, Show differences
+- [x] Verified in headless Chromium with a DTB patched like U-Boot plus a disabled controller: 3 nodes flagged and revealed
+
 ## M3 · Desktop shell (`timber-desktop`)
 - [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`
 - [ ] Native open/save dialogs
@@ -67,7 +73,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## M6 · Diff
 - [ ] Phandle-normalised tree diff
-- [ ] Diff colouring in the graph, filtered popup/search, side-by-side values
+- [ ] Compare two arbitrary trees (DTB vs DTB, live vs source); filtered popup/search; side-by-side values with byte highlights
 - [ ] Summary panel
 
 ## M7 · Packaging

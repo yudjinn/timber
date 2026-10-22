@@ -2,7 +2,7 @@
 
 use timber_core::dts::Compiled;
 use timber_core::source_map::SourceMap;
-use timber_core::{Diagnostic, NodeId, Severity, Tree, dtb, format};
+use timber_core::{Diagnostic, NodeId, Severity, Tree, bsp, dtb, format};
 
 use crate::kind::{Kind, classify};
 use crate::search::SearchIndex;
@@ -32,6 +32,8 @@ pub struct Document {
     pub link: Option<SourceLink>,
     /// Nodes whose labels were borrowed from the linked source (blobs built without `-@`).
     pub borrowed_labels: Vec<bool>,
+    /// How each node compares with the linked source (blobs only).
+    pub diff: Option<DiffInfo>,
     pub diagnostics: Vec<Diagnostic>,
     /// The tree is an overlay (`/plugin/` source or `__fixups__`/`fragment@` blob).
     pub overlay: bool,
@@ -61,6 +63,7 @@ impl Document {
             source_map,
             link: None,
             borrowed_labels,
+            diff: None,
             diagnostics,
             overlay,
             kinds,
@@ -112,6 +115,7 @@ impl Document {
                 tree.node_mut(id).labels.clear();
             }
         }
+        let diff = link.as_ref().map(|l| DiffInfo::compute(&self.tree, l));
         let mut borrowed_labels = vec![false; tree.len()];
         if let Some(l) = &link {
             for (id, borrowed) in borrowed_labels.iter_mut().enumerate() {
@@ -129,6 +133,7 @@ impl Document {
             source_map: self.source_map.clone(),
             link,
             borrowed_labels,
+            diff,
             diagnostics,
             overlay: self.overlay,
             kinds: self.kinds.clone(),
@@ -166,6 +171,77 @@ impl Document {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffMark {
+    Same,
+    /// This many properties differ, are missing, or are extra compared with the source.
+    Differs(usize),
+    /// The node has no counterpart in the source.
+    NotInSource,
+}
+
+/// Per-node comparison of a blob with its linked source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiffInfo {
+    pub marks: Vec<DiffMark>,
+    /// Marked nodes strictly below each node.
+    pub below: Vec<usize>,
+    pub differing: usize,
+    pub not_in_source: usize,
+}
+
+impl DiffInfo {
+    pub fn compute(blob: &Tree, link: &SourceLink) -> Self {
+        let marks: Vec<DiffMark> = (0..blob.len())
+            .map(|id| {
+                if bsp::is_generated(blob, id) {
+                    return DiffMark::Same;
+                }
+                match link.map[id] {
+                    None => DiffMark::NotInSource,
+                    Some(sid) => {
+                        let c = bsp::compare_node(blob, id, &link.tree, sid);
+                        match c.differs.len() + c.only_a.len() + c.only_b.len() {
+                            0 => DiffMark::Same,
+                            n => DiffMark::Differs(n),
+                        }
+                    }
+                }
+            })
+            .collect();
+        // Blobs are parsed depth-first, so children have larger ids than their parents.
+        let mut below = vec![0usize; blob.len()];
+        for id in (1..blob.len()).rev() {
+            if let Some(p) = blob.node(id).parent {
+                below[p] += below[id] + usize::from(marks[id] != DiffMark::Same);
+            }
+        }
+        let differing = marks
+            .iter()
+            .filter(|m| matches!(m, DiffMark::Differs(_)))
+            .count();
+        let not_in_source = marks
+            .iter()
+            .filter(|m| **m == DiffMark::NotInSource)
+            .count();
+        DiffInfo {
+            marks,
+            below,
+            differing,
+            not_in_source,
+        }
+    }
+
+    pub fn is_marked(&self, id: NodeId) -> bool {
+        self.marks.get(id).is_some_and(|m| *m != DiffMark::Same)
+    }
+
+    /// Marked nodes at or below `id`.
+    pub fn in_subtree(&self, id: NodeId) -> usize {
+        usize::from(self.is_marked(id)) + self.below.get(id).copied().unwrap_or(0)
+    }
+}
+
 /// Opened files split into blobs (to show) and sources (to add to the Sources set).
 pub struct Opened {
     pub blobs: Vec<InputFile>,
@@ -197,6 +273,36 @@ pub fn split_opened(files: Vec<InputFile>) -> Opened {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_marks_and_subtree_counts() {
+        use crate::sources::{EntryKind, SourceSet, annotate};
+        let src =
+            "/dts-v1/;\n/ { compatible = \"acme,b\"; soc { a { x = <1>; }; b { y = <2>; }; }; };\n";
+        let (set, _) = SourceSet::default().with_files(
+            EntryKind::Folder,
+            vec![("bsp/b.dts".into(), src.as_bytes().to_vec())],
+        );
+        let mut tree = set.compile("bsp/b.dts").tree;
+        let a = tree.find("/soc/a").unwrap();
+        tree.node_mut(a).set_prop("x", vec![0, 0, 0, 9]);
+        let soc = tree.find("/soc").unwrap();
+        tree.add_child(soc, "extra");
+        let doc = Document::from_blob("b.dtb", &dtb::write(&tree)).unwrap();
+        let link = annotate(&doc.tree, "b.dtb", &set, None);
+        let doc = doc.relinked(link);
+        let diff = doc.diff.as_ref().unwrap();
+        let t = &doc.tree;
+        assert_eq!(diff.marks[t.find("/soc/a").unwrap()], DiffMark::Differs(1));
+        assert_eq!(
+            diff.marks[t.find("/soc/extra").unwrap()],
+            DiffMark::NotInSource
+        );
+        assert_eq!(diff.marks[t.find("/soc/b").unwrap()], DiffMark::Same);
+        assert_eq!((diff.differing, diff.not_in_source), (1, 1));
+        assert_eq!(diff.below[Tree::ROOT], 2);
+        assert_eq!(diff.in_subtree(t.find("/soc").unwrap()), 2);
+    }
 
     #[test]
     fn splits_and_loads() {

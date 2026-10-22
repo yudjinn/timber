@@ -221,6 +221,18 @@ pub fn Toolbar() -> impl IntoView {
                     </span>
                 }
             }))}
+            {move || state.doc.with(|d| d.as_ref().and_then(|d| d.diff.as_ref()).map(|diff| {
+                let total = diff.differing + diff.not_in_source;
+                (total > 0).then(|| view! {
+                    <button
+                        class="diag"
+                        title="Add every node that differs from source to the web"
+                        on:click=move |_| crate::actions::show_differences(state)
+                    >
+                        {format!("{total} differ from source")}
+                    </button>
+                })
+            }))}
             {move || diag_label().map(|(text, error)| view! {
                 <button class="diag" class:error=error on:click=move |_| state.diagnostics_open.update(|o| *o = !*o)>
                     {text}

@@ -254,6 +254,12 @@ fn Legend() -> impl IntoView {
                 <summary>"Legend"</summary>
                 <ul>{items}</ul>
                 <p class="muted small">"Dimmed: status disabled · +N: hidden children · dashed: references"</p>
+                {doc.diff.is_some().then(|| view! {
+                    <p class="muted small">
+                        <span class="diff-pill">"Δ2"</span>" differs from source · "
+                        <span class="diff-pill">"new"</span>" not in source · amber +N: differences hidden below"
+                    </p>
+                })}
             </details>
         })
     }

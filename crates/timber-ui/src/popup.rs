@@ -8,6 +8,7 @@ use leptos::prelude::*;
 use timber_core::NodeId;
 use web_sys::KeyboardEvent;
 
+use crate::doc::DiffMark;
 use crate::search::{MatchKind, match_node};
 use crate::state::AppState;
 use crate::util::highlight;
@@ -27,6 +28,8 @@ struct Row {
     name_hit: Vec<usize>,
     /// A label or compatible match, shown under the name.
     other_hit: Option<(MatchKind, String, Vec<usize>)>,
+    /// Difference marker: the node's own (`Δ2`, `new`) or how many differ below it.
+    diff: Option<(String, bool)>,
 }
 
 #[component]
@@ -65,38 +68,44 @@ pub fn ChildPopup() -> impl IntoView {
         let dark = state.dark.get();
         state.graph.version.track();
         let tree = &doc.tree;
-        let mut rows: Vec<_> = tree
-            .node(parent)
-            .children
-            .iter()
-            .filter_map(|&id| {
-                let hit = if q.is_empty() {
-                    None
-                } else {
-                    Some(match_node(tree, id, &q)?)
-                };
-                let node = tree.node(id);
-                let (name_hit, other_hit) = match hit.as_ref() {
-                    Some(h) if h.kind == MatchKind::Name => (h.positions.clone(), None),
-                    Some(h) => (
-                        Vec::new(),
-                        Some((h.kind, h.text.clone(), h.positions.clone())),
-                    ),
-                    None => (Vec::new(), None),
-                };
-                let row = Row {
-                    id,
-                    name: node.name.clone(),
-                    color: doc.kinds[id].color(dark),
-                    children: node.children.len(),
-                    enabled: tree.is_enabled(id),
-                    in_web: state.graph.contains_untracked(id),
-                    name_hit,
-                    other_hit,
-                };
-                Some((hit.map(|h| h.quality), row))
-            })
-            .collect();
+        let mut rows: Vec<_> =
+            tree.node(parent)
+                .children
+                .iter()
+                .filter_map(|&id| {
+                    let hit = if q.is_empty() {
+                        None
+                    } else {
+                        Some(match_node(tree, id, &q)?)
+                    };
+                    let node = tree.node(id);
+                    let (name_hit, other_hit) = match hit.as_ref() {
+                        Some(h) if h.kind == MatchKind::Name => (h.positions.clone(), None),
+                        Some(h) => (
+                            Vec::new(),
+                            Some((h.kind, h.text.clone(), h.positions.clone())),
+                        ),
+                        None => (Vec::new(), None),
+                    };
+                    let row = Row {
+                        id,
+                        name: node.name.clone(),
+                        color: doc.kinds[id].color(dark),
+                        children: node.children.len(),
+                        enabled: tree.is_enabled(id),
+                        in_web: state.graph.contains_untracked(id),
+                        name_hit,
+                        other_hit,
+                        diff: doc.diff.as_ref().and_then(|d| match d.marks[id] {
+                            DiffMark::Differs(k) => Some((format!("Δ{k}"), true)),
+                            DiffMark::NotInSource => Some(("new".to_string(), true)),
+                            DiffMark::Same => (d.below[id] > 0)
+                                .then(|| (format!("{}Δ below", d.below[id]), false)),
+                        }),
+                    };
+                    Some((hit.map(|h| h.quality), row))
+                })
+                .collect();
         if !q.is_empty() {
             rows.sort_by_key(|(quality, _)| *quality);
         }
@@ -280,6 +289,9 @@ pub fn ChildPopup() -> impl IntoView {
                                                 </span>
                                             })}
                                         </span>
+                                        {row.diff.clone().map(|(text, own)| view! {
+                                            <span class="diff-pill" class:below=!own>{text}</span>
+                                        })}
                                         {(row.children > 0).then(|| view! { <span class="row-count">{row.children}</span> })}
                                         <span class="row-check" aria-label=if row.in_web { "in web" } else { "" }>
                                             {if row.in_web { "✓" } else { "" }}

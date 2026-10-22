@@ -368,6 +368,7 @@ fn frame(
                 pal: &pal,
                 origin: (0.0, 0.0),
                 all_labels: false,
+                diff: doc.diff.as_ref(),
             },
         );
     });

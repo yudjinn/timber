@@ -205,6 +205,7 @@ pub fn export_image(
                     pal: &pal,
                     origin: layout.graph_origin,
                     all_labels: true,
+                    diff: doc.diff.as_ref(),
                 },
             )
         });

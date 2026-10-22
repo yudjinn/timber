@@ -211,6 +211,24 @@ pub fn SourcesPanel() -> impl IntoView {
             <section>
                 <h4>{format!("Source board for {}", doc.short_name())}</h4>
                 {status}
+                {doc.diff.as_ref().map(|d| {
+                    let summary = if d.differing + d.not_in_source == 0 {
+                        "No differences from source.".to_string()
+                    } else {
+                        format!("{} nodes differ from source · {} not in source", d.differing, d.not_in_source)
+                    };
+                    let any = d.differing + d.not_in_source > 0;
+                    view! {
+                        <p class="small">
+                            {summary}
+                            {any.then(|| view! {
+                                <button class="small link-button" on:click=move |_| crate::actions::show_differences(state)>
+                                    "Show differences"
+                                </button>
+                            })}
+                        </p>
+                    }
+                })}
                 <BoardPicker
                     placeholder="Choose a different board…".to_string()
                     on_pick=move |path: String| choose_board_for_blob(state, Some(path))

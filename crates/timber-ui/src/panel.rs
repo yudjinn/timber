@@ -11,7 +11,7 @@ use timber_core::{NodeId, Tree};
 
 use crate::actions::add_folder;
 use crate::backend::BackendHandle;
-use crate::doc::Document;
+use crate::doc::{DiffMark, Document};
 use crate::kind::Kind;
 use crate::state::AppState;
 
@@ -47,6 +47,20 @@ fn status_chip(doc: &Document, id: NodeId) -> impl IntoView + use<> {
         };
         view! { <span class=class>{s}</span> }
     })
+}
+
+fn diff_chip(doc: &Document, id: NodeId) -> impl IntoView + use<> {
+    let d = doc.diff.as_ref()?;
+    let text = match d.marks[id] {
+        DiffMark::Differs(k) => format!(
+            "{k} difference{} from source",
+            if k == 1 { "" } else { "s" }
+        ),
+        DiffMark::NotInSource => "not in source".to_string(),
+        DiffMark::Same if d.below[id] > 0 => format!("{} differ below", d.below[id]),
+        DiffMark::Same => return None,
+    };
+    Some(view! { <span class="chip warn">{text}</span> })
 }
 
 fn loc_text(sm: &SourceMap, kind: LocKind, file: u32, line: u32) -> String {
@@ -264,6 +278,7 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                     <div class="node-kind">
                         {kind.label()}
                         {status_chip(&doc, id)}
+                        {diff_chip(&doc, id)}
                     </div>
                 </div>
             </header>

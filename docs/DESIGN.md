@@ -364,7 +364,9 @@ Custom embedded boards often keep their EVK's `compatible` or live out of tree, 
 
 **Yocto tip** (shown in the panel): add the kernel's `tmp/work-shared/<MACHINE>/kernel-source`, which has the layer's DTS patches applied. Or add the kernel plus your layer's `files/` directories.
 
-This is the lightweight form of the diff. M6 adds whole-tree comparison and diff colouring.
+**Where differences show** ([D-023](DECISIONS.md)): amber `Δn` / `new` pills on graph nodes and popup rows; amber hidden-children badges with the count of differences below; a node panel header chip; a toolbar "N differ from source" button and a Sources panel summary, both with **Show differences** (adds every differing node to the web and fits). All differences are treated alike; the U-Boot hint is informational.
+
+This is the lightweight form of the diff. M6 adds comparing two arbitrary trees (e.g. two DTBs, or a live device against source), side-by-side values with byte-level highlights, and diff filters in search.
 
 ### Node panel when there's no source info
 - **No sources added:** an **"Add source folder…"** button that opens the Sources flow.

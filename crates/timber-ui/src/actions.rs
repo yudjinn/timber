@@ -295,3 +295,23 @@ pub fn refresh(state: AppState) {
         }
     });
 }
+
+/// Adds every node that differs from source (and the path to it) to the web, then fits.
+pub fn show_differences(state: AppState) {
+    let Some(doc) = state.document() else { return };
+    let Some(diff) = &doc.diff else { return };
+    let marked: Vec<_> = (0..doc.tree.len())
+        .filter(|&id| diff.is_marked(id))
+        .collect();
+    for &id in &marked {
+        state.graph.reveal(&doc.tree, id);
+    }
+    state.sources_open.set(false);
+    state.popup.set(None);
+    let tree = doc.tree.clone();
+    set_timeout(move || state.graph.fit(&tree), Duration::from_millis(600));
+    state.notify(
+        format!("Showing {} nodes that differ from source", marked.len()),
+        false,
+    );
+}

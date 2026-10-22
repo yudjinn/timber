@@ -194,3 +194,15 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:** You noticed Chrome's "Upload 8,000+ files?" prompt. Nothing is uploaded, but the wording is alarming, and the old picker listed every file in the folder. A page still can't open a path without a picker; true direct access is the desktop app (M3).
 - **Known gap:** Not verified on a real disk: whether Chromium's directory API follows **symlinked** files, such as `include/dt-bindings/input/linux-event-codes.h` → `uapi`. Boards that include those headers may report a missing include in the web build. The desktop app reads the disk directly and isn't affected.
 
+## D-023 · Differences from source are visible everywhere, all treated alike
+- **Status:** Accepted · 2026-10-22
+- **Decision:** When a DTB is linked to its source, every node is classed as *same*, *differs (n properties)*, or *not in source*. That's shown in five places:
+  - **Graph:** an amber pill on the node (`Δ2`, or `new` for not in source), a dashed amber ring for nodes not in the source, and the hidden-children badge turns amber with a count when differences are hidden below (`+257 · 3Δ`). Exports include these markers.
+  - **Child popup:** the same pills on rows, plus "nΔ below".
+  - **Node panel header:** a chip, e.g. "2 differences from source" or "3 differ below".
+  - **Toolbar:** "N differ from source", which **shows the differences**: every differing node is added to the web and the view is fitted.
+  - **Sources panel:** a summary with the same "Show differences" action.
+- **U-Boot differences** (D-021) are treated like any other difference. The "likely set by U-Boot" chip stays in the node panel as information only.
+- **Why:** You asked what signified that `/chosen` was different. Only the property rows in the node panel did, so differences were invisible on the graph.
+- **Markers are text pills** ("Δ2", "new"), not coloured dots, so they stay distinguishable on yellow (clock) and red (memory) nodes.
+

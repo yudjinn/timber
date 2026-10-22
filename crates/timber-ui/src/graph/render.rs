@@ -4,6 +4,7 @@ use timber_core::{NodeId, Tree};
 
 use super::painter::{Font, Painter};
 use super::sim::{Sim, radius};
+use crate::doc::{DiffInfo, DiffMark};
 use crate::kind::Kind;
 use crate::state::Camera;
 
@@ -17,6 +18,10 @@ pub struct Palette {
     pub outline: &'static str,
     pub badge_bg: &'static str,
     pub badge_text: &'static str,
+    /// Differences from source: pill fill, pill text, and ring stroke.
+    pub diff_bg: &'static str,
+    pub diff_text: &'static str,
+    pub diff_stroke: &'static str,
     pub dark: bool,
 }
 
@@ -34,6 +39,9 @@ impl Palette {
                 outline: "rgba(255, 255, 255, 0.28)",
                 badge_bg: "#2c2c2a",
                 badge_text: "#d6d5d0",
+                diff_bg: "#5a4210",
+                diff_text: "#f5d27a",
+                diff_stroke: "#f0c43a",
                 dark,
             }
         } else {
@@ -47,6 +55,9 @@ impl Palette {
                 outline: "rgba(0, 0, 0, 0.38)",
                 badge_bg: "#ecebe7",
                 badge_text: "#3d3c39",
+                diff_bg: "#fbe3b0",
+                diff_text: "#6b4200",
+                diff_stroke: "#c98500",
                 dark,
             }
         }
@@ -70,6 +81,8 @@ pub struct Frame<'a> {
     pub origin: (f64, f64),
     /// Label every node regardless of zoom (exports); overlapping labels are still culled.
     pub all_labels: bool,
+    /// Differences from the linked source, when there is one.
+    pub diff: Option<&'a DiffInfo>,
 }
 
 const BADGE_FONT: Font = Font::new(10.0, true);
@@ -148,6 +161,19 @@ pub fn draw(p: &mut dyn Painter, f: &Frame) {
             dash,
             if enabled { 1.0 } else { 0.38 },
         );
+        if f.diff
+            .is_some_and(|d| d.marks[n.id] == DiffMark::NotInSource)
+        {
+            p.circle(
+                x,
+                y,
+                r + 2.5,
+                None,
+                Some((pal.diff_stroke, 1.6)),
+                &[3.0, 2.0],
+                1.0,
+            );
+        }
         if f.selected == Some(n.id) {
             p.circle(x, y, r + 4.0, None, Some((pal.accent, 2.2)), &[], 1.0);
         } else if f.popup == Some(n.id) {
@@ -197,13 +223,50 @@ pub fn draw(p: &mut dyn Painter, f: &Frame) {
         let r = screen_r(n.id);
         let strong = emphasised(n.id);
 
+        let badges = cam.k >= 0.35 || strong;
         let hidden = tree.node(n.id).children.len() - sim.visible_children(tree, n.id);
-        if hidden > 0 && (cam.k >= 0.35 || strong) {
-            let text = format!("+{hidden}");
+        if hidden > 0 && badges {
+            // Differences hidden below collapsed children turn the badge amber.
+            let hidden_diffs: usize = f.diff.map_or(0, |d| {
+                tree.node(n.id)
+                    .children
+                    .iter()
+                    .filter(|&&c| !sim.contains(c))
+                    .map(|&c| d.in_subtree(c))
+                    .sum()
+            });
+            let (text, bg, fg) = if hidden_diffs > 0 {
+                (
+                    format!("+{hidden} · {hidden_diffs}Δ"),
+                    pal.diff_bg,
+                    pal.diff_text,
+                )
+            } else {
+                (format!("+{hidden}"), pal.badge_bg, pal.badge_text)
+            };
             let tw = p.measure(&text, BADGE_FONT);
             let (bx, by) = (x + r * 0.7 + 2.0, y - r * 0.7 - 7.0);
-            p.rounded_rect(bx, by, tw + 8.0, 14.0, 7.0, pal.badge_bg, None);
-            p.text(bx + 4.0, by + 10.5, &text, BADGE_FONT, pal.badge_text, None);
+            p.rounded_rect(bx, by, tw + 8.0, 14.0, 7.0, bg, None);
+            p.text(bx + 4.0, by + 10.5, &text, BADGE_FONT, fg, None);
+        }
+        let mark = f.diff.map_or(DiffMark::Same, |d| d.marks[n.id]);
+        if mark != DiffMark::Same && badges {
+            let text = match mark {
+                DiffMark::Differs(k) => format!("Δ{k}"),
+                _ => "new".to_string(),
+            };
+            let tw = p.measure(&text, BADGE_FONT);
+            let (bx, by) = (x - r * 0.7 - 2.0 - tw - 8.0, y - r * 0.7 - 7.0);
+            p.rounded_rect(
+                bx,
+                by,
+                tw + 8.0,
+                14.0,
+                7.0,
+                pal.diff_bg,
+                Some((pal.diff_stroke, 1.0)),
+            );
+            p.text(bx + 4.0, by + 10.5, &text, BADGE_FONT, pal.diff_text, None);
         }
 
         if !(show_all_labels || strong) {
