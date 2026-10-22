@@ -179,107 +179,118 @@ pub fn Toolbar() -> impl IntoView {
     };
 
     view! {
-        <header class="toolbar">
-            <div class="brand" aria-hidden="true">"timber"</div>
-            <GlobalSearch />
-            <div class="toolbar-group">
-                <button
-                    class="primary"
-                    title="Open DTB/DTS files and add source folders"
-                    on:click=move |_| state.sources_open.set(true)
-                >
-                    "Sources"
-                    {move || {
-                        let n = state.sources.with(|s| s.entries.len());
-                        (n > 0).then(|| view! { <span class="count">{n}</span> })
-                    }}
-                </button>
-                <button
-                    class:unavailable=!desktop
-                    aria-disabled=(!desktop).to_string()
-                    title=if desktop { "Connect to a device over SSH" } else { "Requires the desktop app" }
-                    on:click=move |_| {
-                        let msg = if desktop {
-                            "Connecting to devices over SSH arrives in milestone M5."
-                        } else {
-                            "SSH requires the desktop app: browsers can't open network connections to your devices."
-                        };
-                        state.notify(msg, false);
-                    }
-                >
-                    "SSH"
-                    {(!desktop).then(|| view! { <span class="badge">"Desktop"</span> })}
-                </button>
-            </div>
-            <div class="spacer"></div>
-            {move || state.doc.with(|d| d.as_ref().map(|d| {
-                let title = format!("{} · {} nodes", d.name, d.tree.len());
-                view! {
-                    <span class="doc-name" title=title>
-                        {d.short_name().to_string()}
-                        {d.overlay.then(|| view! { <span class="badge">"overlay"</span> })}
-                    </span>
-                }
-            }))}
-            {move || state.doc.with(|d| d.as_ref().and_then(|d| d.diff.as_ref()).map(|diff| {
-                let total = diff.differing + diff.not_in_source;
-                (total > 0).then(|| view! {
+            <header class="toolbar">
+                <div class="brand" aria-hidden="true">"timber"</div>
+                <GlobalSearch />
+                <div class="toolbar-group">
                     <button
-                        class="diag"
-                        title="Add every node that differs from source to the web"
-                        on:click=move |_| crate::actions::show_differences(state)
+                        class="primary"
+                        title="Open DTB/DTS files and add source folders"
+                        on:click=move |_| state.sources_open.set(true)
                     >
-                        {format!("{total} differ from source")}
+                        "Sources"
+                        {move || {
+                            let n = state.sources.with(|s| s.entries.len());
+                            (n > 0).then(|| view! { <span class="count">{n}</span> })
+                        }}
                     </button>
-                })
-            }))}
-            {move || diag_label().map(|(text, error)| view! {
-                <button class="diag" class:error=error on:click=move |_| state.diagnostics_open.update(|o| *o = !*o)>
-                    {text}
-                </button>
-            })}
-            <div class="toolbar-group">
-                <button
-                    disabled=move || !has_doc()
-                    title="Fit the web to the window (F)"
-                    on:click=move |_| {
-                        if let Some(doc) = state.document() {
-                            state.graph.fit(&doc.tree);
+                    <button
+                        class:unavailable=!desktop
+                        aria-disabled=(!desktop).to_string()
+                        title=if desktop { "Connect to a device over SSH" } else { "Requires the desktop app" }
+                        on:click=move |_| {
+                            let msg = if desktop {
+                                "Connecting to devices over SSH arrives in milestone M5."
+                            } else {
+                                "SSH requires the desktop app: browsers can't open network connections to your devices."
+                            };
+                            state.notify(msg, false);
                         }
+                    >
+                        "SSH"
+                        {(!desktop).then(|| view! { <span class="badge">"Desktop"</span> })}
+                    </button>
+                </div>
+                <div class="spacer"></div>
+                {move || state.doc.with(|d| d.as_ref().map(|d| {
+                    let title = format!("{} · {} nodes", d.name, d.tree.len());
+                    view! {
+                        <span class="doc-name" title=title>
+                            {d.short_name().to_string()}
+                            {d.overlay.then(|| view! { <span class="badge">"overlay"</span> })}
+                        </span>
                     }
-                >
-                    "Fit"
-                </button>
-                <button
-                    disabled=move || !has_doc()
-                    title="Back to just the root"
-                    on:click=move |_| {
-                        state.graph.reset();
-                        state.selected.set(Some(timber_core::Tree::ROOT));
-                        state.popup.set(Some(timber_core::Tree::ROOT));
-                    }
-                >
-                    "Reset"
-                </button>
-                <ExportMenu />
-                <button class="ghost icon" title="Shortcuts (?)" aria-label="Shortcuts" on:click=move |_| state.help_open.set(true)>
-                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-                        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
-                        <path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                        <circle cx="8" cy="11.6" r=".9" fill="currentColor" />
-                    </svg>
-                </button>
-                <button
-                    class="ghost icon"
-                    title=move || state.theme.get().label()
-                    aria-label=move || state.theme.get().label()
-                    on:click=move |_| state.theme.update(|t| *t = t.next())
-                >
-                    {move || theme_icon(state.theme.get())}
-                </button>
-            </div>
-        </header>
-    }
+                }))}
+                {move || state.doc.with(|d| d.as_ref().and_then(|d| d.diff.as_ref()).map(|diff| {
+                    let total = diff.differing + diff.not_in_source;
+                    (total > 0).then(|| view! {
+                        <button
+                            class="diag"
+                            title="Add every node that differs from source to the web"
+                            on:click=move |_| crate::actions::show_differences(state)
+                        >
+                            {format!("{total} differ from source")}
+                        </button>
+                    })
+                }))}
+                {move || diag_label().map(|(text, error)| view! {
+                    <button class="diag" class:error=error on:click=move |_| state.diagnostics_open.update(|o| *o = !*o)>
+                        {text}
+                    </button>
+                })}
+                <div class="toolbar-group">
+                    <button
+                        disabled=move || !has_doc()
+                        title="Fit the web to the window (F)"
+                        on:click=move |_| {
+                            if let Some(doc) = state.document() {
+                                state.graph.fit(&doc.tree);
+                            }
+                        }
+                    >
+                        "Fit"
+                    </button>
+                    <button
+                        disabled=move || !has_doc()
+                        title="Back to just the root"
+                        on:click=move |_| {
+                            state.graph.reset();
+                            state.selected.set(Some(timber_core::Tree::ROOT));
+                            state.popup.set(Some(timber_core::Tree::ROOT));
+                        }
+                    >
+                        "Reset"
+                    </button>
+                    <ExportMenu />
+    <button class="ghost icon" title="Settings" aria-label="Settings" on:click=move |_| state.settings_open.set(true)>
+                        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                            <circle cx="8" cy="8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.5" />
+                            <path
+                                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </button>
+                                    <button class="ghost icon" title="Shortcuts (?)" aria-label="Shortcuts" on:click=move |_| state.help_open.set(true)>
+                        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                            <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                            <path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                            <circle cx="8" cy="11.6" r=".9" fill="currentColor" />
+                        </svg>
+                    </button>
+                    <button
+                        class="ghost icon"
+                        title=move || state.theme.get().label()
+                        aria-label=move || state.theme.get().label()
+                        on:click=move |_| state.theme.update(|t| *t = t.next())
+                    >
+                        {move || theme_icon(state.theme.get())}
+                    </button>
+                </div>
+            </header>
+        }
 }
 
 fn theme_icon(pref: crate::state::ThemePref) -> impl IntoView {

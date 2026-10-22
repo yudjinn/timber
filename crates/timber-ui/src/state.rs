@@ -219,6 +219,14 @@ impl ThemePref {
     }
 }
 
+/// A place in a source file (paths are in the sources VFS).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub path: String,
+    pub line: u32,
+    pub col: u32,
+}
+
 /// The popup node's position relative to the graph area: (x, y, radius, area width, area height).
 pub type Anchor = (f64, f64, f64, f64, f64);
 
@@ -248,6 +256,15 @@ pub struct AppState {
     /// Folders that can be re-read, by mount name.
     pub folder_handles: StoredValue<HashMap<String, FolderHandle>, LocalStorage>,
     pub help_open: RwSignal<bool>,
+    /// The location the source viewer shows.
+    pub source_view: RwSignal<Option<SourceLocation>>,
+    /// Viewer history: visited locations and the index of the current one.
+    pub source_history: StoredValue<(Vec<SourceLocation>, usize), LocalStorage>,
+    /// Disk paths of loose source files (desktop), by VFS path; folders map via their handle.
+    pub disk_paths: StoredValue<HashMap<String, String>, LocalStorage>,
+    /// The "Editor command" template (docs/EDITORS.md).
+    pub editor_cmd: RwSignal<String>,
+    pub settings_open: RwSignal<bool>,
     /// A long-running step in progress (reading a folder, matching a board).
     pub busy: RwSignal<Option<String>>,
     pub capabilities: Capabilities,
@@ -271,6 +288,11 @@ impl AppState {
             folder_handles: StoredValue::new_local(HashMap::new()),
             help_open: RwSignal::new(false),
             busy: RwSignal::new(None),
+            source_view: RwSignal::new(None),
+            source_history: StoredValue::new_local((Vec::new(), 0)),
+            disk_paths: StoredValue::new_local(HashMap::new()),
+            editor_cmd: RwSignal::new(String::new()),
+            settings_open: RwSignal::new(false),
             capabilities,
         }
     }
@@ -300,6 +322,42 @@ impl AppState {
     pub fn replace_document(&self, doc: Document) {
         self.doc.set(Some(Arc::new(doc)));
         self.graph.redraw();
+    }
+
+    /// Shows a source location in the viewer, recording it in the history.
+    pub fn open_source(&self, loc: SourceLocation) {
+        self.source_history.update_value(|(stack, pos)| {
+            if stack.get(*pos) != Some(&loc) {
+                stack.truncate(*pos + 1);
+                stack.push(loc.clone());
+                *pos = stack.len() - 1;
+            }
+        });
+        self.source_view.set(Some(loc));
+    }
+
+    /// Moves through the viewer history (`-1` back, `1` forward).
+    pub fn source_step(&self, delta: isize) {
+        let next = self.source_history.try_update_value(|(stack, pos)| {
+            let target = (*pos as isize + delta).clamp(0, stack.len() as isize - 1) as usize;
+            *pos = target;
+            stack.get(target).cloned()
+        });
+        if let Some(Some(loc)) = next {
+            self.source_view.set(Some(loc));
+        }
+    }
+
+    /// The disk path of a sources VFS path, if the file came from disk (desktop).
+    pub fn disk_path(&self, vfs_path: &str) -> Option<String> {
+        if let Some(p) = self.disk_paths.with_value(|m| m.get(vfs_path).cloned()) {
+            return Some(p);
+        }
+        let (mount, rest) = vfs_path.split_once('/')?;
+        self.folder_handles.with_value(|h| match h.get(mount) {
+            Some(crate::backend::FolderHandle::Native(root)) => Some(format!("{root}/{rest}")),
+            _ => None,
+        })
     }
 
     /// Reveals `id` in the web, selects it, centres it, and opens its child popup.

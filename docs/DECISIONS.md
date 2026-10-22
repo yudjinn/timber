@@ -61,7 +61,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - A changed key is a hard stop. Removing the old entry is done in Settings, not by clicking through.
 
 ## D-008 · Opening files in an editor
-- **Status:** Accepted · 2026-10-21
+- **Status:** Superseded by D-026 · 2026-10-22
 - **Decision:** Try these in order:
   1. `$VISUAL`, then `$EDITOR`. Terminal editors are launched in the platform terminal.
   2. VS Code (`code -g file:line:col`).
@@ -227,4 +227,21 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Binary transfer keeps a kernel-sized folder fast. The full smoke test (kernel tree read, 3,733 boards indexed, DTB matched and compared) runs in under 3 seconds.
   - The arguments are useful in their own right (open from a terminal or file manager), and they make the real desktop app testable without driving native dialogs.
 - **Not automatically tested:** the native open/save dialogs themselves. They need a quick manual check on each OS.
+
+## D-026 · Open in editor: one generic command template
+- **Status:** Accepted · 2026-10-22. Supersedes D-008.
+- **Decision:** No per-editor detection or hard-coded terminals.
+  - **Settings has an "Editor command" template** with `{file}`, `{line}` and `{col}` placeholders, run directly (no shell). For example: `code -g {file}:{line}:{col}`, or `kitty -e nvim +{line} {file}`.
+  - **With no template**, the file opens with the OS default application: `xdg-open`, `open`, or `start`.
+  - **Examples for common editors and terminals** are in `docs/EDITORS.md`.
+  - **The web build** shows "Open in editor" greyed out.
+- **Why:** You'd rather keep it generic and document the options than hard-code them. A template covers any editor/terminal combination without Timber having to guess.
+
+## D-027 · Overlays attach in two places
+- **Status:** Accepted · 2026-10-22. Refines D-009.
+- **Decision:** There are two independent overlay lists.
+  1. **"Overlays", under Tree shown:** applied to what's displayed (a DTB or a board from sources). This shows a tree as U-Boot would after applying `.dtbo`s.
+  2. **"Overlays applied at boot", under a DTB's source board:** applied to the compiled source board before comparing. Use it when the device's DTB already had overlays applied, so the overlay changes don't show as differences.
+
+  Composite boards from the Makefiles (`board-dtbs := base.dtb x.dtbo`) fill list 1 when shown.
 

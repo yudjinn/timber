@@ -15,11 +15,13 @@ use crate::help::{HelpDialog, show_help_on_start};
 use crate::kind::Kind;
 use crate::panel::NodePanel;
 use crate::popup::ChildPopup;
+use crate::source_view::{SettingsDialog, SourceDrawer};
 use crate::sources_panel::SourcesPanel;
 use crate::state::{AppState, ThemePref};
 use crate::toolbar::{SEARCH_INPUT_ID, Toolbar};
 
 const THEME_KEY: &str = "timber.theme";
+const EDITOR_KEY: &str = "timber.editor";
 
 fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
@@ -91,6 +93,17 @@ pub fn App() -> impl IntoView {
         }
     });
 
+    // Editor command (desktop): remembered across sessions.
+    if let Some(saved) = storage().and_then(|s| s.get_item(EDITOR_KEY).ok().flatten()) {
+        state.editor_cmd.set(saved);
+    }
+    Effect::new(move |_| {
+        let cmd = state.editor_cmd.get();
+        if let Some(s) = storage() {
+            let _ = s.set_item(EDITOR_KEY, &cmd);
+        }
+    });
+
     // Toasts dismiss themselves.
     Effect::new(move |_| {
         if let Some(toast) = state.toast.get() {
@@ -123,10 +136,21 @@ pub fn App() -> impl IntoView {
             return;
         }
         if key == "Escape"
-            && (state.help_open.get_untracked() || state.sources_open.get_untracked())
+            && (state.help_open.get_untracked()
+                || state.sources_open.get_untracked()
+                || state.settings_open.get_untracked())
         {
             state.help_open.set(false);
             state.sources_open.set(false);
+            state.settings_open.set(false);
+            return;
+        }
+        // Esc closes the child popup first, then the source viewer.
+        if key == "Escape"
+            && state.popup.get_untracked().is_none()
+            && state.source_view.get_untracked().is_some()
+        {
+            state.source_view.set(None);
             return;
         }
         let Some(doc) = state.document() else { return };
@@ -191,6 +215,8 @@ pub fn App() -> impl IntoView {
                 </aside>
             </main>
             <Diagnostics />
+            <SourceDrawer />
+            <SettingsDialog />
             <ChooseMain />
             <SourcesPanel />
             <HelpDialog />
@@ -294,7 +320,12 @@ fn Diagnostics() -> impl IntoView {
                 let class = if d.severity == Severity::Error { "diag-item error" } else { "diag-item" };
                 view! {
                     <li class=class>
-                        <div class="diag-loc">{format!("{}:{}:{}", d.file, d.line, d.col)}</div>
+                        <button class="diag-loc src-link-btn" title="Show in the source viewer" on:click={
+                            let loc = crate::state::SourceLocation { path: d.file.clone(), line: d.line, col: d.col };
+                            move |_| state.open_source(loc.clone())
+                        }>
+                            {format!("{}:{}:{}", d.file, d.line, d.col)}
+                        </button>
                         <div class="diag-msg">{d.message.clone()}</div>
                         {(!d.snippet.is_empty()).then(|| view! { <pre class="diag-snippet">{d.snippet.clone()}</pre> })}
                     </li>

@@ -12,6 +12,8 @@ use crate::sources::SourceLink;
 pub struct InputFile {
     pub name: String,
     pub data: Vec<u8>,
+    /// Where the file is on disk, when known (desktop app).
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,14 +315,17 @@ mod tests {
             InputFile {
                 name: "board.dtb".into(),
                 data: blob.clone(),
+                path: None,
             },
             InputFile {
                 name: "board.dts".into(),
                 data: b"/dts-v1/;\n/ {};\n".to_vec(),
+                path: None,
             },
             InputFile {
                 name: "notes.txt".into(),
                 data: b"hi".to_vec(),
+                path: None,
             },
         ];
         let opened = split_opened(files);

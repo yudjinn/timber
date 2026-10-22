@@ -79,6 +79,7 @@ fn unpack(value: JsValue) -> Result<Option<(String, Vec<InputFile>)>, String> {
         files.push(InputFile {
             name,
             data: c.take(len)?.to_vec(),
+            path: None,
         });
     }
     Ok(Some((handle, files)))
@@ -97,7 +98,8 @@ impl Backend for TauriBackend {
 
     fn open_files(&self) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>> {
         Box::pin(async {
-            Ok(unpack(invoke("pick_files", object(&[])).await?)?.map(|(_, files)| files))
+            Ok(unpack(invoke("pick_files", object(&[])).await?)?
+                .map(|(_, files)| with_disk_paths(files)))
         })
     }
 
@@ -169,6 +171,22 @@ impl Backend for TauriBackend {
         }
     }
 
+    fn open_in_editor(
+        &self,
+        path: &str,
+        line: u32,
+        col: u32,
+        template: &str,
+    ) -> LocalFuture<'_, Result<(), String>> {
+        let args = object(&[
+            ("path", JsValue::from_str(path)),
+            ("line", JsValue::from(line)),
+            ("col", JsValue::from(col)),
+            ("template", JsValue::from_str(template)),
+        ]);
+        Box::pin(async move { invoke("open_in_editor", args).await.map(|_| ()) })
+    }
+
     fn unwatch_folder(&self, handle: &FolderHandle) {
         if let FolderHandle::Native(path) = handle {
             let path = path.clone();
@@ -211,7 +229,29 @@ pub async fn startup() -> Option<Startup> {
 pub async fn read_paths(paths: &[String]) -> Result<Vec<InputFile>, String> {
     let list: Array = paths.iter().map(|p| JsValue::from_str(p)).collect();
     let value = invoke("read_paths", object(&[("paths", list.into())])).await?;
-    Ok(unpack(value)?.map(|(_, files)| files).unwrap_or_default())
+    Ok(unpack(value)?
+        .map(|(_, files)| with_disk_paths(files))
+        .unwrap_or_default())
+}
+
+/// Loose files arrive named by absolute path: keep that as the disk path, name by file name.
+fn with_disk_paths(files: Vec<InputFile>) -> Vec<InputFile> {
+    files
+        .into_iter()
+        .map(|f| {
+            let base = f
+                .name
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&f.name)
+                .to_string();
+            InputFile {
+                path: Some(f.name),
+                name: base,
+                data: f.data,
+            }
+        })
+        .collect()
 }
 
 /// Calls `on_change(path)` when a watched folder's sources change on disk.

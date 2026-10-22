@@ -54,6 +54,15 @@ pub fn add_files(state: AppState, files: Vec<InputFile>) {
                 new_boards.push(format!("files/{base}"));
             }
         }
+        // Remember where loose files live on disk (desktop) for "Open in editor".
+        state.disk_paths.update_value(|m| {
+            for f in &opened.sources {
+                if let Some(path) = &f.path {
+                    let base = f.name.rsplit('/').next().unwrap_or(&f.name);
+                    m.insert(format!("files/{base}"), path.clone());
+                }
+            }
+        });
         let files = opened
             .sources
             .into_iter()

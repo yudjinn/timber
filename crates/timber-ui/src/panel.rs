@@ -13,7 +13,7 @@ use crate::actions::add_folder;
 use crate::backend::BackendHandle;
 use crate::doc::{DiffMark, Document};
 use crate::kind::Kind;
-use crate::state::AppState;
+use crate::state::{AppState, SourceLocation};
 
 #[component]
 pub fn NodePanel() -> impl IntoView {
@@ -72,6 +72,26 @@ fn loc_text(sm: &SourceMap, kind: LocKind, file: u32, line: u32) -> String {
         LocKind::Deleted => "deleted",
     };
     format!("{verb} {short}:{line}")
+}
+
+/// A source location as a link that opens the source viewer.
+fn loc_link(
+    state: AppState,
+    sm: &SourceMap,
+    loc: &timber_core::source_map::SourceLoc,
+) -> impl IntoView + use<> {
+    let text = loc_text(sm, loc.kind, loc.file, loc.line);
+    let target = SourceLocation {
+        path: sm.files.get(loc.file as usize).cloned().unwrap_or_default(),
+        line: loc.line,
+        col: loc.col,
+    };
+    let title = format!("{}:{}", target.path, target.line);
+    view! {
+        <button class="src-link-btn" title=title on:click=move |_| state.open_source(target.clone())>
+            {text}
+        </button>
+    }
 }
 
 /// A banner explaining where source information is (or isn't) coming from.
@@ -187,14 +207,8 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
             };
             let sources = doc
                 .source_for(id)
-                .map(|(sm, sid)| {
-                    sm.prop(sid, &p.name)
-                        .iter()
-                        .map(|l| loc_text(sm, l.kind, l.file, l.line))
-                        .collect::<Vec<_>>()
-                        .join(" · ")
-                })
-                .filter(|s| !s.is_empty());
+                .map(|(sm, sid)| sm.prop(sid, &p.name).iter().map(|l| loc_link(state, sm, l)).collect::<Vec<_>>())
+                .filter(|v| !v.is_empty());
             let differs = comparison.as_ref().is_some_and(|c| c.differs.contains(&p.name));
             let only_here = comparison.as_ref().is_some_and(|c| c.only_a.contains(&p.name));
             let source_value = differs
@@ -239,7 +253,7 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
     let node_sources = doc.source_for(id).map(|(sm, sid)| {
         sm.node(sid)
             .iter()
-            .map(|l| view! { <li>{loc_text(sm, l.kind, l.file, l.line)}</li> })
+            .map(|l| view! { <li>{loc_link(state, sm, l)}</li> })
             .collect_view()
     });
 

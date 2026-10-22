@@ -81,6 +81,17 @@ pub trait Backend: Send + Sync {
     /// Starts reporting changes to a folder (desktop only).
     fn watch_folder(&self, _handle: &FolderHandle) {}
     fn unwatch_folder(&self, _handle: &FolderHandle) {}
+    /// Opens a file on disk in the user's editor (`template` per docs/EDITORS.md; empty uses
+    /// the OS default application).
+    fn open_in_editor(
+        &self,
+        _path: &str,
+        _line: u32,
+        _col: u32,
+        _template: &str,
+    ) -> LocalFuture<'_, Result<(), String>> {
+        Box::pin(async { Err("opening files in an editor requires the desktop app".to_string()) })
+    }
 }
 
 #[derive(Clone)]
@@ -119,6 +130,7 @@ async fn read_files(
             out.push(InputFile {
                 name: name.clone(),
                 data: Uint8Array::new(&buf).to_vec(),
+                path: None,
             });
         }
         if let Some(p) = &progress {

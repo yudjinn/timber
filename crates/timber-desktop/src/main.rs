@@ -128,6 +128,71 @@ async fn save_file(app: AppHandle, request: Request<'_>) -> Result<bool, String>
     Ok(true)
 }
 
+/// Splits a command template into arguments: spaces separate, double quotes group.
+fn split_command(template: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let (mut quoted, mut any) = (false, false);
+    for c in template.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if any {
+                    args.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            c => {
+                cur.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        args.push(cur);
+    }
+    args
+}
+
+/// Opens a source file in the user's editor: the Settings template (docs/EDITORS.md) with
+/// `{file}`, `{line}`, `{col}` substituted per argument, or the OS default application.
+#[tauri::command]
+fn open_in_editor(path: String, line: u32, col: u32, template: String) -> Result<(), String> {
+    let args: Vec<String> = if template.trim().is_empty() {
+        #[cfg(target_os = "linux")]
+        let opener = vec!["xdg-open".to_string(), path.clone()];
+        #[cfg(target_os = "macos")]
+        let opener = vec!["open".to_string(), path.clone()];
+        #[cfg(target_os = "windows")]
+        let opener = vec![
+            "cmd".into(),
+            "/C".into(),
+            "start".into(),
+            String::new(),
+            path.clone(),
+        ];
+        opener
+    } else {
+        split_command(&template)
+            .into_iter()
+            .map(|a| {
+                a.replace("{file}", &path)
+                    .replace("{line}", &line.to_string())
+                    .replace("{col}", &col.to_string())
+            })
+            .collect()
+    };
+    let (program, rest) = args.split_first().ok_or("the editor command is empty")?;
+    std::process::Command::new(program)
+        .args(rest)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("couldn't run `{program}`: {e}"))
+}
+
 /// Prints a line to stdout (the `--smoke` run's report).
 #[tauri::command]
 fn report(line: String) {
@@ -156,9 +221,28 @@ fn main() {
             save_file,
             watch::watch_folder,
             watch::unwatch_folder,
+            open_in_editor,
             report,
             quit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Timber");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_command;
+
+    #[test]
+    fn splits_templates() {
+        assert_eq!(
+            split_command("code -g {file}:{line}:{col}"),
+            ["code", "-g", "{file}:{line}:{col}"]
+        );
+        assert_eq!(
+            split_command(r#""C:\Program Files\x.exe" -n{line}  {file}"#),
+            [r"C:\Program Files\x.exe", "-n{line}", "{file}"]
+        );
+        assert_eq!(split_command("kitty -e nvim +{line} {file}").len(), 5);
+    }
 }

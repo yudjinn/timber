@@ -431,10 +431,10 @@ This is the lightweight form of the diff. M6 adds comparing two arbitrary trees 
 ```
 
 - The **source viewer** opens as a resizable bottom drawer. It has syntax highlighting, jumps to the line, and highlights the node's block. On desktop there's also an "Open in editor" button.
-- **Open in editor** ([D-008](DECISIONS.md)):
-  1. `$VISUAL`, then `$EDITOR`. A terminal editor (vim, nano, …) is launched in the platform terminal.
-  2. Otherwise VS Code (`code -g file:line:col`).
-  3. Otherwise a custom command template in Settings, e.g. `subl {file}:{line}` or `idea --line {line} {file}`.
+- **Open in editor** ([D-026](DECISIONS.md)), desktop only:
+  - runs the Settings "Editor command" template (`{file}`, `{line}`, `{col}`)
+  - with no template, uses the OS default application
+  - examples are in [EDITORS.md](EDITORS.md)
 - **Themes:** light and dark, following the OS, with an override in settings.
 
 ### 8.2 The web (graph)

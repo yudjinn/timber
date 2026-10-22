@@ -28,15 +28,16 @@ pub fn pack(handle: &str, files: &[(String, Vec<u8>)]) -> Vec<u8> {
     out
 }
 
-/// Reads individual files; names are the file names.
+/// Reads individual files; names are their absolute paths (the UI keeps them so it can open
+/// sources in an editor).
 pub fn read_files(paths: &[PathBuf]) -> Result<Vec<(String, Vec<u8>)>, String> {
     paths
         .iter()
         .map(|p| {
-            let name = p.file_name().map_or_else(
-                || p.to_string_lossy().into_owned(),
-                |n| n.to_string_lossy().into_owned(),
-            );
+            let name = std::fs::canonicalize(p)
+                .unwrap_or_else(|_| p.clone())
+                .to_string_lossy()
+                .into_owned();
             fs::read(p)
                 .map(|d| (name, d))
                 .map_err(|e| format!("{}: {e}", p.display()))

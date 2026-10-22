@@ -12,6 +12,8 @@ mod kind;
 mod panel;
 mod popup;
 mod search;
+mod source_text;
+mod source_view;
 mod sources;
 mod sources_panel;
 mod state;
