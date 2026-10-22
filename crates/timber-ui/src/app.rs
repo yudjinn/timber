@@ -40,11 +40,22 @@ fn is_typing(ev: &web_sys::KeyboardEvent) -> bool {
 
 #[component]
 pub fn App() -> impl IntoView {
-    let backend = BackendHandle(Arc::new(WebBackend));
+    let backend = if crate::tauri::in_tauri() {
+        BackendHandle(Arc::new(crate::tauri::TauriBackend))
+    } else {
+        BackendHandle(Arc::new(WebBackend))
+    };
     let state = AppState::new(backend.0.capabilities());
     provide_context(state);
     provide_context(backend.clone());
     show_help_on_start(state);
+    if state.capabilities.desktop {
+        let b = backend.clone();
+        crate::tauri::on_folder_changed(move |path| {
+            crate::actions::reload_folder_at(state, b.clone(), path)
+        });
+        crate::actions::run_startup(state, backend.clone());
+    }
 
     // Theme: stored preference, applied to <html data-theme>, resolved against the OS.
     if let Some(saved) = storage().and_then(|s| s.get_item(THEME_KEY).ok().flatten()) {

@@ -214,3 +214,17 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - The kernel golden test checks both modes.
 - **Why:** A DTB built with `-@` (common for boards that take overlays) showed ~430 false "not in source" pin groups. `dtc -@` keeps labelled omit-nodes, and a plain compile drops them. Matching that behaviour exactly also turned up two more `dtc` details: merged labels are prepended, and labels deleted by `/delete-node/` still count towards phandle allocation.
 
+## D-025 · Desktop shell details
+- **Status:** Accepted · 2026-10-22. Implements D-002/D-003 (M3).
+- **Decision:**
+  - **Tauri 2.12**, the current stable; 3.0 is still alpha.
+  - **File contents reach the UI as one binary message**, not JSON.
+  - **Source folders are watched** and reload automatically on save. The roadmap had this in M4; it moved into M3 because folder sources already existed.
+  - **The app takes command-line arguments** (`timber FILE… --source DIR…`), plus `--smoke`/`--smoke-watch` modes that print what loaded and exit.
+  - **The folder rules moved into `timber_core::folder`**, so the browser walk and the native walk can't drift apart.
+  - **SSH** shows "arrives in milestone M5" in the desktop app until then.
+- **Why:**
+  - Binary transfer keeps a kernel-sized folder fast. The full smoke test (kernel tree read, 3,733 boards indexed, DTB matched and compared) runs in under 3 seconds.
+  - The arguments are useful in their own right (open from a terminal or file manager), and they make the real desktop app testable without driving native dialogs.
+- **Not automatically tested:** the native open/save dialogs themselves. They need a quick manual check on each OS.
+

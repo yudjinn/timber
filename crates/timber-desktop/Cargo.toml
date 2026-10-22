@@ -1,0 +1,19 @@
+[package]
+name = "timber-desktop"
+version.workspace = true
+edition.workspace = true
+description = "Timber device tree viewer: desktop app"
+
+[[bin]]
+name = "timber"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+timber-core = { path = "../timber-core" }
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "2.8.3"
+serde = { version = "1.0.228", features = ["derive"] }
+notify = "8.2.0"

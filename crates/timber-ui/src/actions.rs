@@ -1,12 +1,13 @@
 //! User actions that load trees and change sources.
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use leptos::prelude::*;
 
-use crate::backend::{BackendHandle, FolderFilter, Progress};
+use crate::backend::{BackendHandle, FolderFilter, FolderHandle, PickedFolder, Progress};
 use crate::doc::{Document, InputFile, Origin, split_opened};
 use timber_core::vfs::Vfs;
 
@@ -104,31 +105,7 @@ pub fn add_folder(state: AppState, backend: BackendHandle) {
             Ok(Some(picked)) => {
                 state.busy.set(Some("Indexing boards…".into()));
                 after_paint(move || {
-                    let files = picked.files.into_iter().map(|f| (f.name, f.data)).collect();
-                    let (set, name) = state
-                        .sources
-                        .get_untracked()
-                        .with_files(EntryKind::Folder, files);
-                    let summary = set
-                        .entries
-                        .iter()
-                        .find(|e| e.name == name)
-                        .map(|e| {
-                            format!(
-                                "Added {name}: {}, {}",
-                                plural(e.files, "file"),
-                                plural(e.boards, "board")
-                            )
-                        })
-                        .unwrap_or_default();
-                    // Store the handle before the set, so the panel shows Reload right away.
-                    state.folder_handles.update_value(|h| {
-                        match picked.handle {
-                            Some(handle) => h.insert(name.clone(), handle),
-                            None => h.remove(&name),
-                        };
-                    });
-                    state.sources.set(Arc::new(set));
+                    let summary = install_folder(state, &backend, picked);
                     state.busy.set(None);
                     state.notify(summary, false);
                     refresh(state);
@@ -141,6 +118,52 @@ pub fn add_folder(state: AppState, backend: BackendHandle) {
             }
         }
     });
+}
+
+/// Adds a picked folder to the sources (watching it where the backend can) and returns a
+/// summary for the user.
+fn install_folder(state: AppState, backend: &BackendHandle, picked: PickedFolder) -> String {
+    let files = picked.files.into_iter().map(|f| (f.name, f.data)).collect();
+    let (set, name) = state
+        .sources
+        .get_untracked()
+        .with_files(EntryKind::Folder, files);
+    let summary = set
+        .entries
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| {
+            format!(
+                "Added {name}: {}, {}",
+                plural(e.files, "file"),
+                plural(e.boards, "board")
+            )
+        })
+        .unwrap_or_default();
+    if let Some(handle) = &picked.handle {
+        backend.0.watch_folder(handle);
+    }
+    // Store the handle before the set, so the panel shows Reload right away.
+    state.folder_handles.update_value(|h| {
+        match picked.handle {
+            Some(handle) => h.insert(name.clone(), handle),
+            None => h.remove(&name),
+        };
+    });
+    state.sources.set(Arc::new(set));
+    summary
+}
+
+/// Reloads the folder entry whose desktop path is `path` (after a change on disk).
+pub fn reload_folder_at(state: AppState, backend: BackendHandle, path: String) {
+    let name = state.folder_handles.with_value(|h| {
+        h.iter()
+            .find(|(_, handle)| matches!(handle, FolderHandle::Native(p) if *p == path))
+            .map(|(n, _)| n.clone())
+    });
+    if let Some(name) = name {
+        reload_folder(state, backend, name);
+    }
 }
 
 /// Re-reads a folder opened with direct access, picking up edits made on disk.
@@ -166,6 +189,7 @@ pub fn reload_folder(state: AppState, backend: BackendHandle, name: String) {
                     state.busy.set(None);
                     state.notify(format!("Reloaded {name}"), false);
                     refresh(state);
+                    RELOADS.with(|r| r.set(r.get() + 1));
                 });
             }
             Err(e) => {
@@ -176,9 +200,11 @@ pub fn reload_folder(state: AppState, backend: BackendHandle, name: String) {
     });
 }
 
-pub fn remove_source(state: AppState, name: &str) {
+pub fn remove_source(state: AppState, backend: BackendHandle, name: &str) {
     state.folder_handles.update_value(|h| {
-        h.remove(name);
+        if let Some(handle) = h.remove(name) {
+            backend.0.unwatch_folder(&handle);
+        }
     });
     let set = state.sources.get_untracked().without(name);
     state.sources.set(Arc::new(set));
@@ -314,4 +340,110 @@ pub fn show_differences(state: AppState) {
         format!("Showing {} nodes that differ from source", marked.len()),
         false,
     );
+}
+
+async fn sleep(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        if let Some(w) = web_sys::window() {
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// Desktop: loads what the app was launched with (`timber FILE… --source DIR…`). With
+/// `--smoke`, prints a summary of what loaded and exits (an end-to-end test of the app).
+pub fn run_startup(state: AppState, backend: BackendHandle) {
+    leptos::task::spawn_local(async move {
+        let Some(start) = crate::tauri::startup().await else {
+            return;
+        };
+        for dir in &start.sources {
+            let handle = FolderHandle::Native(dir.clone());
+            match backend
+                .0
+                .reload_folder(handle.clone(), source_files_only(), folder_progress(state))
+                .await
+            {
+                Ok(files) if !files.is_empty() => {
+                    let summary = install_folder(
+                        state,
+                        &backend,
+                        PickedFolder {
+                            files,
+                            handle: Some(handle),
+                        },
+                    );
+                    state.notify(summary, false);
+                }
+                Ok(_) => state.notify(format!("No .dts, .dtsi, or .h files in {dir}"), true),
+                Err(e) => state.notify(format!("Couldn't read {dir}: {e}"), true),
+            }
+        }
+        state.busy.set(None);
+        if !start.files.is_empty() {
+            match crate::tauri::read_paths(&start.files).await {
+                Ok(files) => add_files(state, files),
+                Err(e) => state.notify(format!("Couldn't open files: {e}"), true),
+            }
+        }
+        if start.smoke || start.smoke_watch {
+            smoke_report(state, !start.files.is_empty()).await;
+        }
+        if start.smoke_watch {
+            // Wait for a watched folder to reload, then report again.
+            let reloads = RELOADS.with(Cell::get);
+            while RELOADS.with(Cell::get) == reloads {
+                sleep(100).await;
+            }
+            smoke_report(state, !start.files.is_empty()).await;
+        }
+        if start.smoke || start.smoke_watch {
+            crate::tauri::quit().await;
+        }
+    });
+}
+
+async fn smoke_report(state: AppState, expect_doc: bool) {
+    for _ in 0..600 {
+        sleep(100).await;
+        let settled = state.busy.get_untracked().is_none()
+            && (!expect_doc || state.doc.with_untracked(Option::is_some));
+        if settled {
+            break;
+        }
+    }
+    let sources = state.sources.get_untracked();
+    let mut line = format!(
+        "timber-smoke sources={} boards={}",
+        sources.entries.len(),
+        sources.boards.len()
+    );
+    if let Some(doc) = state.document() {
+        line.push_str(&format!(
+            " doc={} nodes={} errors={}",
+            doc.short_name(),
+            doc.tree.len(),
+            doc.error_count()
+        ));
+        if let Some(link) = &doc.link {
+            line.push_str(&format!(
+                " board={} match={:.0}%",
+                link.board,
+                link.confidence * 100.0
+            ));
+        }
+        if let Some(d) = &doc.diff {
+            line.push_str(&format!(
+                " differ={} not_in_source={}",
+                d.differing, d.not_in_source
+            ));
+        }
+    }
+    crate::tauri::report(&line).await;
+}
+
+thread_local! {
+    /// Completed folder reloads, so the `--smoke-watch` run can wait for one.
+    static RELOADS: Cell<u32> = const { Cell::new(0) };
 }

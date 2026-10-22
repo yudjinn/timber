@@ -15,6 +15,7 @@ mod search;
 mod sources;
 mod sources_panel;
 mod state;
+mod tauri;
 mod toolbar;
 mod util;
 

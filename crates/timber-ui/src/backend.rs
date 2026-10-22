@@ -41,6 +41,8 @@ pub enum FolderAccess {
 pub enum FolderHandle {
     /// A `FileSystemDirectoryHandle`.
     Browser(JsValue),
+    /// A folder path on disk (desktop app).
+    Native(String),
 }
 
 pub struct PickedFolder {
@@ -69,12 +71,16 @@ pub trait Backend: Send + Sync {
         want: FolderFilter,
         progress: Progress,
     ) -> LocalFuture<'_, Result<Vec<InputFile>, String>>;
+    /// Saves a file; `Ok(false)` if the user cancelled.
     fn save_file(
         &self,
         name: &str,
         mime: &str,
         data: Vec<u8>,
-    ) -> LocalFuture<'_, Result<(), String>>;
+    ) -> LocalFuture<'_, Result<bool, String>>;
+    /// Starts reporting changes to a folder (desktop only).
+    fn watch_folder(&self, _handle: &FolderHandle) {}
+    fn unwatch_folder(&self, _handle: &FolderHandle) {}
 }
 
 #[derive(Clone)]
@@ -87,7 +93,7 @@ const READ_BATCH: usize = 64;
 
 pub struct WebBackend;
 
-fn js_err(e: JsValue) -> String {
+pub(crate) fn js_err(e: JsValue) -> String {
     e.as_string()
         .or_else(|| js_sys::JSON::stringify(&e).ok().and_then(|s| s.as_string()))
         .unwrap_or_else(|| "unknown error".into())
@@ -178,25 +184,25 @@ fn relative_path(file: &File) -> String {
 // ---- directory access API (Chromium), called dynamically: web-sys only exposes it behind
 // its unstable-API flag ----
 
-fn get(v: &JsValue, key: &str) -> JsValue {
+pub(crate) fn get(v: &JsValue, key: &str) -> JsValue {
     js_sys::Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
-fn method(v: &JsValue, name: &str) -> Result<js_sys::Function, String> {
+pub(crate) fn method(v: &JsValue, name: &str) -> Result<js_sys::Function, String> {
     get(v, name)
         .dyn_into()
         .map_err(|_| format!("{name} is not supported"))
 }
 
-fn call0(v: &JsValue, name: &str) -> Result<JsValue, String> {
+pub(crate) fn call0(v: &JsValue, name: &str) -> Result<JsValue, String> {
     method(v, name)?.call0(v).map_err(js_err)
 }
 
-fn call1(v: &JsValue, name: &str, arg: &JsValue) -> Result<JsValue, String> {
+pub(crate) fn call1(v: &JsValue, name: &str, arg: &JsValue) -> Result<JsValue, String> {
     method(v, name)?.call1(v, arg).map_err(js_err)
 }
 
-async fn await_js(v: JsValue) -> Result<JsValue, String> {
+pub(crate) async fn await_js(v: JsValue) -> Result<JsValue, String> {
     let promise: Promise = v.dyn_into().map_err(|_| "expected a promise".to_string())?;
     JsFuture::from(promise).await.map_err(js_err)
 }
@@ -258,7 +264,8 @@ async fn walk_directory(
         }
         let listing: Vec<(bool, &str)> =
             children.iter().map(|(d, n, _)| (*d, n.as_str())).collect();
-        let kernel = kernel.or_else(|| crate::sources::is_kernel_root(&listing).then(String::new));
+        let kernel =
+            kernel.or_else(|| timber_core::folder::is_kernel_root(&listing).then(String::new));
         for (is_dir, name, entry) in children {
             let child_path = format!("{path}/{name}");
             if !is_dir {
@@ -280,7 +287,7 @@ async fn walk_directory(
             });
             if child_kernel
                 .as_deref()
-                .is_some_and(|rel| !crate::sources::kernel_dir_wanted(rel))
+                .is_some_and(|rel| !timber_core::folder::kernel_dir_wanted(rel))
             {
                 continue;
             }
@@ -382,7 +389,9 @@ impl Backend for WebBackend {
         progress: Progress,
     ) -> LocalFuture<'_, Result<Vec<InputFile>, String>> {
         Box::pin(async move {
-            let FolderHandle::Browser(dir) = handle;
+            let FolderHandle::Browser(dir) = handle else {
+                return Err("this folder can't be reloaded in the browser".into());
+            };
             // Permission lapses between sessions; ask again (this runs from a click).
             let opts = read_mode();
             let state = await_js(call1(&dir, "queryPermission", &opts)?).await?;
@@ -401,7 +410,7 @@ impl Backend for WebBackend {
         name: &str,
         mime: &str,
         data: Vec<u8>,
-    ) -> LocalFuture<'_, Result<(), String>> {
+    ) -> LocalFuture<'_, Result<bool, String>> {
         let (name, mime) = (name.to_string(), mime.to_string());
         Box::pin(async move {
             let document = web_sys::window()
@@ -421,7 +430,7 @@ impl Backend for WebBackend {
             a.set_download(&name);
             a.click();
             let _ = web_sys::Url::revoke_object_url(&url);
-            Ok(())
+            Ok(true)
         })
     }
 }

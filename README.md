@@ -18,6 +18,20 @@ trunk serve              # web build at http://127.0.0.1:8080
 trunk build --release    # static site in dist/
 ```
 
+## Desktop app
+
+Linux needs WebKitGTK 4.1 (`webkit2gtk-4.1`); Windows and macOS use the system webview.
+
+```sh
+cargo install tauri-cli --version "^2" --locked
+cd crates/timber-desktop
+cargo tauri dev          # runs trunk serve and opens the app with live reload
+cargo tauri build        # release bundles (AppImage/deb, msi, dmg) in target/release/bundle
+
+# The binary takes files and source folders:
+timber board.dtb --source ~/src/linux --source ~/bsp
+```
+
 ## Development
 
 ```sh
@@ -36,3 +50,4 @@ cargo run --release -p timber-core --example compile -- ~/src/linux arch/arm64/b
 |---|---|
 | `crates/timber-core` | Tree model, DTB reader/writer, DTS compiler (preprocessor, dtc-compatible), formatting |
 | `crates/timber-ui` | Leptos UI compiled to wasm |
+| `crates/timber-desktop` | Tauri 2 desktop app: native dialogs, folders from disk, watcher |

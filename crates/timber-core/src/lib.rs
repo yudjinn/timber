@@ -3,6 +3,7 @@
 pub mod bsp;
 pub mod dtb;
 pub mod dts;
+pub mod folder;
 pub mod format;
 mod lex;
 mod preprocess;

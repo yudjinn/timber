@@ -56,17 +56,22 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Annotation compiles in `-@` mode for DTBs with `__symbols__`; the samples DTB now shows 0 differences
 - [x] Kernel golden test in both modes: 3,733 sources, 0 differences each
 
-## M3 · Desktop shell (`timber-desktop`)
-- [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`
-- [ ] Native open/save dialogs
-- [ ] Greyed-out desktop-only features in the web build ("Requires the desktop app")
+## M3 · Desktop shell (`timber-desktop`) — done 2026-10-22 (D-025)
+- [x] Tauri 2.12 app wrapping `timber-ui`; `TauriBackend` picked automatically; one ~8.6 MB `timber` binary; app icon
+- [x] Native open/save dialogs (save reports cancel); folders read from disk with the shared `timber_core::folder` rules
+- [x] Binary file transfer (`TMBR` batch) instead of JSON
+- [x] Folder watcher → automatic reload (pulled forward from M4)
+- [x] Command line: `timber FILE… --source DIR…`, `--smoke`, `--smoke-watch`
+- [x] Greyed-out desktop-only features in the web build ("Requires the desktop app"); desktop SSH says "arrives in M5"
+- [x] Verified: `--smoke` (kernel tree + patched DTB → 100% match, 3 differences, under 3 s); `--smoke-watch` (editing a .dts while open → reloaded, 4 differences); web build re-checked in headless Chromium
+- [ ] Manual check of the native dialogs on Linux, Windows, macOS
 
 ## M4 · BSP folders
-- [ ] Folder indexing (desktop native; web via Chromium `showDirectoryPicker`)
+- [x] Folder indexing (desktop native, M3; web, M2b/M2c)
 - [ ] Config input: `.config` / defconfig / Yocto `KERNEL_DEVICETREE`
 - [ ] dts Makefile evaluation → board picker (active first)
 - [ ] Source viewer drawer; open in editor (D-008)
-- [ ] Folder watcher + recompile (desktop); Reload button (web)
+- [x] Folder watcher + recompile (desktop, M3); Reload button (web, M2c)
 - [ ] Overlay application + `*-dtbs` composites (D-009)
 
 ## M5 · SSH (desktop)

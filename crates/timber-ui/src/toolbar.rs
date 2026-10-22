@@ -199,12 +199,12 @@ pub fn Toolbar() -> impl IntoView {
                     aria-disabled=(!desktop).to_string()
                     title=if desktop { "Connect to a device over SSH" } else { "Requires the desktop app" }
                     on:click=move |_| {
-                        if !desktop {
-                            state.notify(
-                                "SSH requires the desktop app: browsers can't open network connections to your devices.",
-                                false,
-                            );
-                        }
+                        let msg = if desktop {
+                            "Connecting to devices over SSH arrives in milestone M5."
+                        } else {
+                            "SSH requires the desktop app: browsers can't open network connections to your devices."
+                        };
+                        state.notify(msg, false);
                     }
                 >
                     "SSH"
@@ -321,7 +321,8 @@ fn save(
     match file {
         Ok((name, mime, data)) => leptos::task::spawn_local(async move {
             match backend.0.save_file(&name, mime, data).await {
-                Ok(()) => state.notify(format!("Saved {name}"), false),
+                Ok(true) => state.notify(format!("Saved {name}"), false),
+                Ok(false) => {}
                 Err(e) => state.notify(format!("Export failed: {e}"), true),
             }
         }),

@@ -96,7 +96,36 @@ trait Backend {
 }
 ```
 
-### Capability matrix
+### Desktop app (`timber-desktop`, [D-025](DECISIONS.md))
+
+**What it is:**
+- A Tauri 2 app, built as a single `timber` binary (~8.6 MB release).
+- The UI picks `TauriBackend` when `window.__TAURI__` exists (`withGlobalTauri`).
+
+**Commands:**
+| Command | Does |
+|---|---|
+| `pick_files`, `read_paths` | Native file dialog, or files given by path. |
+| `pick_folder`, `read_folder` | Folders read straight from disk, pruned like the web walk. The rules live in `timber_core::folder`. Directory symlinks are followed with cycle protection; file symlinks are read through. |
+| `save_file` | Raw request body (no JSON), suggested name in an `x-file-name` header, native save dialog. Reports whether you cancelled. |
+| `watch_folder`, `unwatch_folder` | A recursive `notify` watcher per folder. A 400 ms quiet period after the last change to a source file emits `folder-changed`, and the UI reloads that folder. |
+| `startup`, `report`, `quit` | Command-line handling, below. |
+
+**File transfer:** files go to the UI as **one binary message**:
+- `"TMBR"`, version, folder handle, then length-prefixed name/data pairs
+- JSON number arrays would be several times larger for a kernel tree
+
+**Command line:** `timber [FILE…] [--source DIR…] [--smoke | --smoke-watch]`
+- Files and folders are loaded at startup.
+- `--smoke` prints a one-line summary of what loaded (sources, boards, node count, matched board, differences) and exits.
+- `--smoke-watch` also waits for a watched folder to change and reload, reports again, then exits.
+- These are the app's end-to-end tests.
+
+**Development:**
+- `cargo tauri dev` (from `crates/timber-desktop`) runs `trunk serve` from the repo root and loads `http://127.0.0.1:8080`.
+- `cargo tauri build` bundles a release with `trunk build --release` output.
+
+
 
 | Feature | Desktop | Web |
 |---|---|---|

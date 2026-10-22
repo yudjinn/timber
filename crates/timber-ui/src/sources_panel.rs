@@ -172,7 +172,9 @@ pub fn SourcesPanel() -> impl IntoView {
                                     "Reload"
                                 </button>
                             })}
-                            <button class="small" on:click=move |_| remove_source(state, &name)>"Remove"</button>
+                            <button class="small" on:click=move |_| remove_source(state, b_reload.get_value(), &name)>
+                                "Remove"
+                            </button>
                         </div>
                     </li>
                 }
