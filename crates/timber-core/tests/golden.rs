@@ -25,7 +25,7 @@ fn have_tools() -> bool {
 }
 
 /// Runs the kernel's `cpp | dtc` pipeline. `Err` carries dtc's message.
-fn dtc_compile(file: &Path, include_dirs: &[PathBuf]) -> Result<Tree, String> {
+fn dtc_compile(file: &Path, include_dirs: &[PathBuf], symbols: bool) -> Result<Tree, String> {
     let mut cpp = Command::new("cpp");
     cpp.args([
         "-nostdinc",
@@ -43,6 +43,9 @@ fn dtc_compile(file: &Path, include_dirs: &[PathBuf]) -> Result<Tree, String> {
     }
     let mut dtc = Command::new("dtc");
     dtc.args(["-q", "-I", "dts", "-O", "dtb", "-o", "-"]);
+    if symbols {
+        dtc.arg("-@");
+    }
     // `/include/` is resolved by dtc itself, against the source's directory and -i paths.
     if let Some(dir) = file.parent() {
         dtc.arg("-i").arg(dir);
@@ -170,8 +173,8 @@ fn fixtures() {
     let vfs = load_dir(&root, &["."]);
     let includes = [root.clone(), root.join("include")];
     for name in ["board.dts", "overlay.dtso"] {
-        let expected =
-            dtc_compile(&root.join(name), &includes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let expected = dtc_compile(&root.join(name), &includes, false)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
         let ours = dts::compile(&vfs, name);
         let errors: Vec<String> = ours.errors().map(|d| d.to_string()).collect();
         assert!(errors.is_empty(), "{name}:\n{}", errors.join("\n"));
@@ -197,6 +200,8 @@ fn kernel_tree() {
     let root = PathBuf::from(dir);
     let arch = std::env::var("TIMBER_KERNEL_ARCH").unwrap_or_else(|_| "arm64".into());
     let filter = std::env::var("TIMBER_KERNEL_FILTER").unwrap_or_default();
+    // TIMBER_KERNEL_SYMBOLS=1 compares against `dtc -@` builds.
+    let symbols = std::env::var("TIMBER_KERNEL_SYMBOLS").is_ok_and(|v| v == "1");
     let dts_dir = format!("arch/{arch}/boot/dts");
     // Boards may include other arches' sources via include-prefixes (`arm/...`).
     let vfs = load_dir(&root, &["arch", "include/dt-bindings"]);
@@ -216,7 +221,7 @@ fn kernel_tree() {
         .collect();
     let (mut passed, mut skipped, mut failures) = (0, 0, Vec::new());
     for board in &boards {
-        let expected = match dtc_compile(&root.join(board), &includes) {
+        let expected = match dtc_compile(&root.join(board), &includes, symbols) {
             Ok(t) => t,
             Err(e) => {
                 if skipped < 3 {
@@ -226,7 +231,14 @@ fn kernel_tree() {
                 continue;
             }
         };
-        let ours = dts::compile(&vfs, board);
+        let ours = dts::compile_with(
+            &vfs,
+            board,
+            &dts::Options {
+                symbols,
+                ..dts::Options::default()
+            },
+        );
         let mut problems: Vec<String> = ours.errors().map(|d| d.to_string()).collect();
         if problems.is_empty() {
             problems = diff_trees(&ours.tree, &expected);
@@ -246,7 +258,8 @@ fn kernel_tree() {
         }
     }
     eprintln!(
-        "kernel {arch}: {passed} match dtc, {} differ, {skipped} rejected by dtc",
+        "kernel {arch}{}: {passed} match dtc, {} differ, {skipped} rejected by dtc",
+        if symbols { " (-@)" } else { "" },
         failures.len()
     );
     assert!(

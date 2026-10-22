@@ -224,6 +224,13 @@ A missing include is a clear error that names the file and the line that include
   - `&{/path} { }` always becomes a fragment with `target-path`
   - `&label { }` merges into the overlay's own node when an earlier fragment defined that label; otherwise it becomes a fragment
 - **Error recovery:** a fully parsed statement whose target is missing is reported without skipping the next statement.
+- **Labels merged into an existing node are prepended**, so the newest label comes first (dtc's `add_label`). This decides `__symbols__` order.
+- **`-@` mode** (`dts::Options { symbols: true }`):
+  - emits `__symbols__`, with every label → path, in tree order
+  - **keeps labelled `/omit-if-no-ref/` nodes**, since an overlay might reference them
+  - gives **every labelled node a phandle**: the lowest free one in the final tree, so phandles of dropped omit-nodes are reused. A node whose only labels were removed by `/delete-node/` still counts as labelled.
+
+  Annotation compiles in this mode automatically when the DTB carries `__symbols__`; otherwise ~430 Rockchip pin groups looked "not in source" (D-024).
 
 **Folder loading** follows **file** symlinks (e.g. `include/dt-bindings/input/linux-event-codes.h` → `uapi`) but not **directory** symlinks (`scripts/dtc/include-prefixes/*`), because the include resolver emulates those.
 
@@ -572,7 +579,7 @@ timber/
   - `TIMBER_KERNEL_FILTER` (optional)
 
   No kernel sources are vendored ([D-014](DECISIONS.md)).
-- **Result, 2026-10-21** (torvalds/linux `a804c57`): 1,900 arm64, 1,767 arm and 66 riscv sources compared, **0 differences**.
+- **Result, 2026-10-22** (torvalds/linux `a804c57`): 1,900 arm64, 1,767 arm and 66 riscv sources compared, **0 differences**, both plain and with `TIMBER_KERNEL_SYMBOLS=1` (against `dtc -@`).
 - **A sparse checkout is enough:** `arch/*/boot/dts`, `include/dt-bindings`, `include/uapi` and `scripts/dtc`.
 - **Speed:** an 813-node RK3588 board (23 input files) compiles in about 21 ms in a native release build. Measure with `cargo run --release -p timber-core --example compile -- <kernel> <board.dts>`.
 

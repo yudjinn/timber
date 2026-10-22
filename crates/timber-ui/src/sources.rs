@@ -267,12 +267,24 @@ impl SourceSet {
     }
 
     pub fn compile(&self, path: &str) -> Compiled {
+        self.compile_as(path, false)
+    }
+
+    /// Compiles a board; `symbols` mirrors dtc's `-@` (for blobs that carry `__symbols__`).
+    pub fn compile_as(&self, path: &str, symbols: bool) -> Compiled {
         let defines: Vec<(&str, &str)> = self
             .defines
             .iter()
             .map(|(n, v)| (n.as_str(), v.as_str()))
             .collect();
-        dts::compile_with_defines(&self.vfs, path, &defines)
+        dts::compile_with(
+            &self.vfs,
+            path,
+            &dts::Options {
+                defines: &defines,
+                symbols,
+            },
+        )
     }
 
     pub fn board(&self, path: &str) -> Option<&BoardInfo> {
@@ -328,10 +340,12 @@ pub fn annotate(
             list
         }
     };
+    // A blob built with dtc -@ keeps labelled /omit-if-no-ref/ nodes; compile the same way.
+    let symbols = blob.child_by_name(Tree::ROOT, "__symbols__").is_some();
     let (candidate, compiled, confidence) = candidates
         .into_iter()
         .map(|c| {
-            let compiled = set.compile(&set.boards[c.index].path);
+            let compiled = set.compile_as(&set.boards[c.index].path, symbols);
             let score = bsp::content_score(blob, &compiled.tree);
             (c, compiled, score)
         })

@@ -51,6 +51,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Popup row pills, panel header chip, toolbar "N differ from source", Sources summary, Show differences
 - [x] Verified in headless Chromium with a DTB patched like U-Boot plus a disabled controller: 3 nodes flagged and revealed
 
+## Fix · `dtc -@` fidelity (D-024) — done 2026-10-22
+- [x] `-@` compile mode (symbols, labelled omit-nodes kept, phandles for labelled nodes), label prepend order, deleted-label phandle quirk
+- [x] Annotation compiles in `-@` mode for DTBs with `__symbols__`; the samples DTB now shows 0 differences
+- [x] Kernel golden test in both modes: 3,733 sources, 0 differences each
+
 ## M3 · Desktop shell (`timber-desktop`)
 - [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`
 - [ ] Native open/save dialogs

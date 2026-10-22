@@ -36,15 +36,24 @@ impl Compiled {
     }
 }
 
-/// Compiles the DTS at `main` (a path in `vfs`); includes resolve against the same `vfs`.
-pub fn compile(vfs: &dyn Vfs, main: &str) -> Compiled {
-    compile_with_defines(vfs, main, &[])
+/// Build options, mirroring the cpp/dtc flags a build passes.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Options<'a> {
+    /// Preprocessor defines (`-D NAME=VALUE`).
+    pub defines: &'a [(&'a str, &'a str)],
+    /// dtc's `-@`: emit `__symbols__` and keep labelled `/omit-if-no-ref/` nodes.
+    pub symbols: bool,
 }
 
-/// Like [`compile`], with preprocessor defines (`-D NAME=VALUE`) as the build passes them.
-pub fn compile_with_defines(vfs: &dyn Vfs, main: &str, defines: &[(&str, &str)]) -> Compiled {
-    let pre = preprocess(vfs, main, defines);
-    let mut compiled = compile_preprocessed(&pre.text);
+/// Compiles the DTS at `main` (a path in `vfs`); includes resolve against the same `vfs`.
+pub fn compile(vfs: &dyn Vfs, main: &str) -> Compiled {
+    compile_with(vfs, main, &Options::default())
+}
+
+/// Like [`compile`], with build options.
+pub fn compile_with(vfs: &dyn Vfs, main: &str, options: &Options) -> Compiled {
+    let pre = preprocess(vfs, main, options.defines);
+    let mut compiled = compile_preprocessed_with(&pre.text, options.symbols);
     let mut diagnostics = pre.diagnostics;
     diagnostics.append(&mut compiled.diagnostics);
     compiled.diagnostics = diagnostics;
@@ -62,10 +71,15 @@ pub fn compile_str(name: &str, text: &str) -> Compiled {
 
 /// Compiles already-preprocessed text (which may contain `# line "file"` markers).
 pub fn compile_preprocessed(text: &str) -> Compiled {
+    compile_preprocessed_with(text, false)
+}
+
+fn compile_preprocessed_with(text: &str, symbols: bool) -> Compiled {
     let mut p = Parser {
         s: Src::new(text),
         root: DNode::default(),
         plugin: false,
+        symbols,
         fragments: 0,
         mem_reserve: Vec::new(),
         diags: Vec::new(),
@@ -123,13 +137,16 @@ struct DNode {
     omit_if_no_ref: bool,
     /// See [`DProp::deleted`].
     deleted: bool,
+    /// Labels removed by `/delete-node/`. dtc keeps them as deleted entries, and under -@
+    /// a node with any label entry (even only deleted ones) still gets a phandle.
+    deleted_labels: Vec<String>,
 }
 
 impl DNode {
     /// dtc's `delete_node`: marks the node and everything under it deleted and drops labels.
     fn delete(&mut self) {
         self.deleted = true;
-        self.labels.clear();
+        self.deleted_labels.append(&mut self.labels);
         self.props.iter_mut().for_each(|p| p.deleted = true);
         self.children.iter_mut().for_each(DNode::delete);
     }
@@ -154,6 +171,7 @@ struct Parser<'a> {
     s: Src<'a>,
     root: DNode,
     plugin: bool,
+    symbols: bool,
     fragments: u32,
     mem_reserve: Vec<(u64, u64)>,
     diags: Vec<Diagnostic>,
@@ -775,11 +793,13 @@ impl Parser<'_> {
         let mut sources = vec![NodeSources::default()];
         let mut pending = Vec::new();
         let mut omit = Vec::new();
+        let mut ghosts = Vec::new();
         build(
             &mut tree,
             &mut sources,
             &mut pending,
             &mut omit,
+            &mut ghosts,
             Tree::ROOT,
             root,
         );
@@ -889,13 +909,16 @@ impl Parser<'_> {
         }
 
         // dtc resolves references before dropping unreferenced `/omit-if-no-ref/` nodes, so
-        // references from dropped nodes still count and still allocate phandles.
+        // references from dropped nodes still count and still allocate phandles. With -@ it
+        // keeps labelled ones, since an overlay may refer to them later.
         let removed: HashSet<NodeId> = omit
             .into_iter()
             .filter(|id| !referenced.contains(id))
+            .filter(|id| !(self.symbols && !tree.node(*id).labels.is_empty()))
             .collect();
         if !removed.is_empty() {
             let map = tree.remove_subtrees(&removed);
+            ghosts = ghosts.into_iter().filter_map(|id| map[id]).collect();
             let mut kept = vec![NodeSources::default(); tree.len()];
             for (old, new) in map.iter().enumerate() {
                 if let Some(new) = new {
@@ -922,6 +945,57 @@ impl Parser<'_> {
             {
                 tree.node_mut(id).props.retain(|p| p.name != "name");
                 node_sources.props.retain(|(n, _)| n != "name");
+            }
+        }
+
+        // -@: every label and its node's path, in tree order (ids are depth-first). Like dtc,
+        // each labelled node also gets a phandle: the lowest one free in the tree as it now
+        // stands (phandles of dropped /omit-if-no-ref/ nodes are free again).
+        if self.symbols {
+            let mut taken: HashSet<u32> =
+                (0..tree.len()).filter_map(|id| tree.phandle(id)).collect();
+            let mut next = 1u32;
+            let mut symbols: Vec<(String, String)> = Vec::new();
+            for id in 0..tree.len() {
+                if tree.node(id).labels.is_empty() {
+                    if ghosts.contains(&id) && tree.phandle(id).is_none() {
+                        while taken.contains(&next) {
+                            next += 1;
+                        }
+                        taken.insert(next);
+                        tree.node_mut(id).props.push(Property {
+                            name: "phandle".into(),
+                            value: next.to_be_bytes().to_vec(),
+                        });
+                    }
+                    continue;
+                }
+                let path = tree.path(id);
+                symbols.extend(
+                    tree.node(id)
+                        .labels
+                        .iter()
+                        .map(|l| (l.clone(), path.clone())),
+                );
+                if tree.phandle(id).is_none() {
+                    while taken.contains(&next) {
+                        next += 1;
+                    }
+                    taken.insert(next);
+                    tree.node_mut(id).props.push(Property {
+                        name: "phandle".into(),
+                        value: next.to_be_bytes().to_vec(),
+                    });
+                }
+            }
+            if !symbols.is_empty() {
+                let node = tree.add_child(Tree::ROOT, "__symbols__");
+                sources.push(NodeSources::default());
+                for (label, path) in symbols {
+                    let mut value = path.into_bytes();
+                    value.push(0);
+                    tree.node_mut(node).set_prop(&label, value);
+                }
             }
         }
 
@@ -980,10 +1054,12 @@ impl Parser<'_> {
     }
 }
 
+/// Adds labels from a block merged into an existing node. Like dtc's `add_label`, each one
+/// is prepended, so the newest labels come first (this decides `__symbols__` order).
 fn union_labels(into: &mut Vec<String>, labels: Vec<String>) {
     for l in labels {
         if !into.contains(&l) {
-            into.push(l);
+            into.insert(0, l);
         }
     }
 }
@@ -1007,7 +1083,8 @@ fn apply(target: &mut DNode, items: Vec<Item>, deleted: &mut Vec<(String, Source
                 }
             },
             Item::Node(def) => {
-                let idx = match target.children.iter().position(|c| c.name == def.name) {
+                let existing = target.children.iter().position(|c| c.name == def.name);
+                let idx = match existing {
                     Some(i) => {
                         let child = &mut target.children[i];
                         let kind = if child.deleted {
@@ -1033,7 +1110,12 @@ fn apply(target: &mut DNode, items: Vec<Item>, deleted: &mut Vec<(String, Source
                 };
                 let child = &mut target.children[idx];
                 child.omit_if_no_ref |= def.omit_if_no_ref;
-                union_labels(&mut child.labels, def.labels);
+                if existing.is_some() {
+                    union_labels(&mut child.labels, def.labels);
+                } else {
+                    // A new node keeps its labels in source order (`a: b: node`).
+                    child.labels = def.labels;
+                }
                 let child_path = format!("{path}/{}", def.name);
                 apply(child, def.items, deleted, &child_path);
             }
@@ -1151,11 +1233,15 @@ fn build(
     sources: &mut Vec<NodeSources>,
     pending: &mut Vec<(NodeId, usize, Vec<Chunk>)>,
     omit: &mut Vec<NodeId>,
+    ghosts: &mut Vec<NodeId>,
     id: NodeId,
     node: DNode,
 ) {
     if node.omit_if_no_ref {
         omit.push(id);
+    }
+    if !node.deleted_labels.is_empty() {
+        ghosts.push(id);
     }
     tree.node_mut(id).labels = node.labels;
     sources[id].node = node.locs;
@@ -1185,7 +1271,7 @@ fn build(
     for child in node.children.into_iter().filter(|c| !c.deleted) {
         let cid = tree.add_child(id, child.name.clone());
         sources.push(NodeSources::default());
-        build(tree, sources, pending, omit, cid, child);
+        build(tree, sources, pending, omit, ghosts, cid, child);
     }
 }
 
@@ -1260,6 +1346,13 @@ mod tests {
         assert!(t.find("/soc/extra").is_some());
         assert!(t.find("/soc/gone").is_none());
         assert_eq!(t.node(uart).labels, ["uart0"]);
+
+        // Labels added by a later block come first, as in dtc.
+        let merged = ok("/dts-v1/;\n/ { a: b: n {}; };\n/ { c: n {}; };\n");
+        assert_eq!(
+            merged.tree.node(merged.tree.find("/n").unwrap()).labels,
+            ["c", "a", "b"]
+        );
 
         let status = c.source_map.prop(uart, "status");
         assert_eq!(status.len(), 2);
@@ -1406,6 +1499,40 @@ mod tests {
             ),
             Some("okay")
         );
+    }
+
+    #[test]
+    fn symbols_mode_keeps_labelled_omit_nodes_and_emits_symbols() {
+        let text = "/dts-v1/;\n/ { /omit-if-no-ref/ a: pins-a {}; /omit-if-no-ref/ pins-b {}; c: dev {}; };\n";
+        let vfs = MemVfs::new().with("t.dts", text);
+        let plain = compile(&vfs, "t.dts").tree;
+        assert!(plain.find("/pins-a").is_none());
+        assert!(plain.find("/__symbols__").is_none());
+        let with = compile_with(
+            &vfs,
+            "t.dts",
+            &Options {
+                symbols: true,
+                ..Options::default()
+            },
+        );
+        let t = &with.tree;
+        assert!(
+            t.find("/pins-a").is_some(),
+            "labelled omit node kept with -@"
+        );
+        assert!(
+            t.find("/pins-b").is_none(),
+            "unlabelled omit node still dropped"
+        );
+        let sym = t.find("/__symbols__").unwrap();
+        let props: Vec<(&str, &str)> = t
+            .node(sym)
+            .props
+            .iter()
+            .map(|p| (p.name.as_str(), std::str::from_utf8(&p.value).unwrap()))
+            .collect();
+        assert_eq!(props, [("a", "/pins-a\0"), ("c", "/dev\0")]);
     }
 
     #[test]

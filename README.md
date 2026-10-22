@@ -25,6 +25,8 @@ cargo test                       # unit tests + golden tests against dtc (needs 
 
 # Compare against every board and overlay in a kernel checkout:
 TIMBER_KERNEL_DIR=~/src/linux TIMBER_KERNEL_ARCH=arm64 cargo test --release --test golden kernel_tree
+# ...and against dtc -@ builds:
+TIMBER_KERNEL_SYMBOLS=1 TIMBER_KERNEL_DIR=~/src/linux cargo test --release --test golden kernel_tree
 
 # Time and inspect a single compile:
 cargo run --release -p timber-core --example compile -- ~/src/linux arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts --dts

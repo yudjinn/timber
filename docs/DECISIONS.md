@@ -206,3 +206,11 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:** You asked what signified that `/chosen` was different. Only the property rows in the node panel did, so differences were invisible on the graph.
 - **Markers are text pills** ("Δ2", "new"), not coloured dots, so they stay distinguishable on yellow (clock) and red (memory) nodes.
 
+## D-024 · Compile like `dtc -@` when the DTB was built that way
+- **Status:** Accepted · 2026-10-22. Extends D-013.
+- **Decision:**
+  - The compiler has a `-@` mode, which emits `__symbols__`, keeps labelled `/omit-if-no-ref/` nodes, and assigns phandles to all labelled nodes.
+  - Annotation uses it whenever the DTB being viewed contains `__symbols__`.
+  - The kernel golden test checks both modes.
+- **Why:** A DTB built with `-@` (common for boards that take overlays) showed ~430 false "not in source" pin groups. `dtc -@` keeps labelled omit-nodes, and a plain compile drops them. Matching that behaviour exactly also turned up two more `dtc` details: merged labels are prepended, and labels deleted by `/delete-node/` still count towards phandle allocation.
+
