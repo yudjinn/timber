@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: MIT */
 #ifndef _DT_BINDINGS_SOC_H
 #define _DT_BINDINGS_SOC_H
 

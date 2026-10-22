@@ -27,7 +27,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Compiler messages drawer
 - [x] Export `.dts` / `.dtb`; light/dark/auto theme; phone layout
 - [x] Verified in headless Chromium (Playwright) on a real RK3588 DTB and the DTS fixtures; no console errors
-- [ ] Later: check the Playwright smoke test into the repo and run it in CI
+- [x] Playwright tests checked into `tests/ui` (2026-10-22); running them in CI is part of M7
 
 ## M2b · Sources, image export, shortcuts help (D-017…D-021) — done 2026-10-21
 - [x] Core: board scan (root `compatible`/`model`, following includes for variant boards), board ranking, DTB↔source node mapping, property comparison by target path
@@ -97,5 +97,6 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] Summary panel
 
 ## M7 · Packaging
+- [ ] CI: `cargo test`, clippy, and the Playwright tests in `tests/ui`
 - [ ] GitHub Actions release matrix (Linux AppImage/deb, Windows msi/exe, macOS dmg)
 - [ ] Static web deploy

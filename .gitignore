@@ -1,3 +1,7 @@
 /target
 /dist
 /crates/timber-desktop/gen/
+/tests/ui/node_modules/
+/tests/ui/.fixtures/
+/tests/ui/test-results/
+/tests/ui/playwright-report/

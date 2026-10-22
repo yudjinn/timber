@@ -655,7 +655,10 @@ timber/
 **Other tests**
 - **Live fetch:** tar → `Tree` conversion tested with captured tarballs.
 - **Desktop SSH:** an integration test against a throwaway `sshd` container in CI (Linux only), covering password, key and TOFU.
-- **UI:** manual checklist per milestone. Playwright smoke tests for the web build later.
+- **UI:** Playwright tests in `tests/ui`, run against the web build (`dist/`) in headless Chromium. A browser console error fails the test.
+  - Fixtures are built at test time into `tests/ui/.fixtures/` (gitignored): the repo's fixture board via cpp + dtc + fdtoverlay and, with `TIMBER_KERNEL_DIR`, a small staged kernel for rk3588-rock-5b plus a DTB patched with fdtput the way U-Boot would. Kernel tests skip without it.
+  - The directory picker is driven with a real handle from the origin-private file system. SSH flows run against a mocked `window.__TAURI__`; the real SSH backend has its own tests against a throwaway sshd.
+  - A manual check per milestone covers what headless Chromium can't: native dialogs, the editor, real boards.
 
 ---
 

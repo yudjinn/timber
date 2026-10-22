@@ -1,0 +1,14 @@
+{
+  "name": "timber-ui-tests",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests of the Timber web build in headless Chromium",
+  "scripts": {
+    "build": "cd ../.. && trunk build",
+    "test": "playwright test",
+    "test:all": "npm run build && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
+  }
+}

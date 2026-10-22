@@ -49,6 +49,11 @@ TIMBER_KERNEL_DIR=~/src/linux TIMBER_KERNEL_ARCH=arm64 cargo test --release --te
 # ...and against dtc -@ builds:
 TIMBER_KERNEL_SYMBOLS=1 TIMBER_KERNEL_DIR=~/src/linux cargo test --release --test golden kernel_tree
 
+# UI tests: the web build in headless Chromium (needs Node, plus cpp/dtc/fdtoverlay for fixtures):
+cd tests/ui && npm install && npx playwright install chromium
+npm run test:all                                   # trunk build, then the tests
+TIMBER_KERNEL_DIR=~/src/linux npm test             # also the kernel-backed tests (rk3588-rock-5b)
+
 # Time and inspect a single compile:
 cargo run --release -p timber-core --example compile -- ~/src/linux arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts --dts
 ```
