@@ -109,15 +109,17 @@ trait Backend {
 | `pick_folder`, `read_folder` | Folders read straight from disk, pruned like the web walk. The rules live in `timber_core::folder`. Directory symlinks are followed with cycle protection; file symlinks are read through. |
 | `save_file` | Raw request body (no JSON), suggested name in an `x-file-name` header, native save dialog. Reports whether you cancelled. |
 | `watch_folder`, `unwatch_folder` | A recursive `notify` watcher per folder. A 400 ms quiet period after the last change to a source file emits `folder-changed`, and the UI reloads that folder. |
+| `ssh_connect`, `ssh_fetch`, `ssh_device_config`, `ssh_disconnect`, `ssh_trust_host` | SSH sessions (§6). `ssh_fetch` answers in binary: `"TMBL"`, how it was read, whether `/proc/config.gz` is readable, the path read, then the DTB. Failures come back as `{kind, message, host_key, key_file}` so the dialog can ask for what's missing. |
 | `startup`, `report`, `quit` | Command-line handling, below. |
 
 **File transfer:** files go to the UI as **one binary message**:
 - `"TMBR"`, version, folder handle, then length-prefixed name/data pairs
 - JSON number arrays would be several times larger for a kernel tree
 
-**Command line:** `timber [FILE…] [--source DIR…] [--smoke | --smoke-watch]`
+**Command line:** `timber [FILE…] [--source DIR…] [--config FILE] [--ssh TARGET [--ssh-options OPTS] [--tree-path PATH]] [--smoke | --smoke-watch]`
 - Files and folders are loaded at startup.
-- `--smoke` prints a one-line summary of what loaded (sources, boards, node count, matched board, differences) and exits.
+- `--ssh` connects at launch. If that needs you (a password, a new host key), the connect dialog opens with the problem shown.
+- `--smoke` prints a one-line summary of what loaded (sources, boards, live device, node count, matched board, differences) and exits.
 - `--smoke-watch` also waits for a watched folder to change and reload, reports again, then exits.
 - These are the app's end-to-end tests.
 
@@ -328,7 +330,7 @@ A missing include is a clear error that names the file and the line that include
 
 **Library:** `russh` in the desktop app; the web build shows SSH greyed out.
 
-**Connect dialog** (toolbar **SSH**, or Sources → Tree shown → *Connect to device…*):
+**Connect dialog** (toolbar **SSH**, or Sources → Tree shown → *Connect to a device…*):
 - **Fields:** host (accepts `user@host:port` or an `~/.ssh/config` alias), user, port, and auth (Automatic / Password / Key file), with password, key path and passphrase.
 - **Extra options** ([D-029](DECISIONS.md)): OpenSSH-style, including `-J`/`ProxyJump` and `ProxyCommand`.
 - **Remote tree path:** advanced; default `/proc/device-tree`.
@@ -349,18 +351,20 @@ A missing include is a clear error that names the file and the line that include
 - **Changed key** ([D-028](DECISIONS.md)): the connection stops. The warning shows the old and new fingerprints, with **"Device was reflashed: trust the new key"**.
 
 **Fetching** runs one remote `sh` script, which prints a header line naming what it sends:
-1. **`TAR`:** `tar` of the tree path, `/proc/device-tree` by default, falling back to `/sys/firmware/devicetree/base`. This is the live tree, including runtime overlays.
+1. **`TGZ` / `TAR`:** `tar` of the tree path, `/proc/device-tree` by default, falling back to `/sys/firmware/devicetree/base`, piped through `gzip` when the device has it. This is the live tree, including runtime overlays. Every property is a tiny file padded to 512 bytes in the archive, so gzip shrinks a Rock 5B's tree from 4.8 MB to about 100 KB.
 2. **`OD`:** no `tar`, so `find` + `od` hex dumps (busybox).
 3. **`FDT`:** `cat /sys/firmware/fdt`, the boot-time blob (needs root).
 
-The result is converted to a `Tree`. The kernel's synthetic `name` properties are dropped where they just repeat the node's base name. The tree is shown as **"host · live"** or **"host · boot FDT"**, and everything else (source matching, differences, boot overlays, export) applies.
+The result is converted to a `Tree` (`timber_core::live`), then sent to the UI as a DTB. The kernel's synthetic `name` properties are dropped where they just repeat the node's base name. That directory lists entries in hash order, so nodes are sorted by unit address and properties into the usual DTS order (`compatible`, `reg`, … `status`, `phandle`). The tree is shown as **"host · live"** or **"host · boot FDT"**, and everything else (source matching, differences, boot overlays, export) applies.
 
 **Device config:** if `/proc/config.gz` exists, Timber always asks whether to use it as the kernel config ([D-030](DECISIONS.md)).
 
 **Live session** ([D-031](DECISIONS.md)): the connection stays open while the tree is shown.
-- **Refresh** and **auto-refresh** (off / 5 s / 10 s / 30 s / 60 s) re-read the device.
-- The view only changes when the tree did.
-- Showing anything else disconnects.
+- The toolbar shows the device (`user@host`), **Refresh**, **Auto-refresh** (off / 5 s / 10 s / 30 s / 60 s) and **Disconnect**. Disconnecting leaves the tree shown as a snapshot.
+- The view only changes when the tree did. When it changes shape, the web is kept: nodes still present stay where they were, by path, as do the selection and camera.
+- If the connection dropped (the board rebooted), the next read reconnects with the same settings, kept in memory only. While the device is unreachable, the live bar's dot turns red and only the first failure pops up.
+- Opening a file or showing a board disconnects.
+- **Recent devices** are kept in the app's local storage (no passwords or passphrases).
 
 **Errors:** in plain language, e.g. "Host key changed", "Permission denied (tried: agent, key ~/.ssh/id_ed25519, password)", "No device tree at /proc/device-tree and /sys/firmware/fdt isn't readable (needs root)". Timeouts: connect 10 s, commands 30 s.
 

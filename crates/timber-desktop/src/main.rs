@@ -1,9 +1,10 @@
 //! Timber desktop: the Leptos UI in a native window, with native file dialogs, folders read
-//! straight from disk, and folder watching. SSH (M5) will live here too.
+//! straight from disk, folder watching, and SSH to devices.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
+mod ssh;
 mod watch;
 
 use std::path::PathBuf;
@@ -14,7 +15,8 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// What was passed on the command line:
-/// `timber [FILE…] [--source DIR…] [--config FILE] [--smoke | --smoke-watch]`.
+/// `timber [FILE…] [--source DIR…] [--config FILE] [--ssh TARGET [--ssh-options OPTS]
+/// [--tree-path PATH]] [--smoke | --smoke-watch]`.
 #[derive(Debug, Clone, Default, Serialize)]
 struct Startup {
     files: Vec<String>,
@@ -26,6 +28,12 @@ struct Startup {
     /// Like `smoke`, but after the first summary wait for a watched folder to change and
     /// reload, then print a second summary and exit.
     smoke_watch: bool,
+    /// Connect to this device at launch (`user@host:port` or an `~/.ssh/config` alias).
+    ssh: Option<String>,
+    /// The connection's "Extra options" (D-029).
+    ssh_options: Option<String>,
+    /// Where the device's tree is, if not `/proc/device-tree`.
+    tree_path: Option<String>,
 }
 
 fn parse_args() -> Startup {
@@ -35,6 +43,9 @@ fn parse_args() -> Startup {
         match arg.as_str() {
             "--source" | "-s" => s.sources.extend(args.next()),
             "--config" | "-c" => s.config = args.next(),
+            "--ssh" => s.ssh = args.next(),
+            "--ssh-options" => s.ssh_options = args.next(),
+            "--tree-path" => s.tree_path = args.next(),
             "--smoke" => s.smoke = true,
             "--smoke-watch" => s.smoke_watch = true,
             path => s.files.push(path.to_string()),
@@ -220,6 +231,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(parse_args())
+        .manage(ssh::Sessions::default())
         .setup(|app| {
             app.manage(watch::Watchers::new(app.handle().clone()));
             Ok(())
@@ -234,6 +246,11 @@ fn main() {
             watch::watch_folder,
             watch::unwatch_folder,
             open_in_editor,
+            ssh::ssh_connect,
+            ssh::ssh_fetch,
+            ssh::ssh_device_config,
+            ssh::ssh_disconnect,
+            ssh::ssh_trust_host,
             report,
             quit,
         ])

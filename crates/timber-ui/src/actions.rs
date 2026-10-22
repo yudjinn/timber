@@ -390,8 +390,10 @@ fn rebuild(state: AppState, fresh: bool, busy: &str) {
                 let same_shape = state
                     .document()
                     .is_some_and(|d| d.tree.len() == doc.tree.len());
-                if fresh || !same_shape {
+                if fresh {
                     state.set_document(doc);
+                } else if !same_shape {
+                    state.set_document_keeping_web(doc);
                 } else {
                     state.replace_document(doc);
                 }
@@ -408,9 +410,15 @@ fn rebuild(state: AppState, fresh: bool, busy: &str) {
 }
 
 pub fn show_blob(state: AppState, name: &str, data: &[u8]) {
+    crate::ssh::disconnect(state);
+    show_live_blob(state, name, Arc::new(data.to_vec()));
+}
+
+/// Shows a tree read from a device (without ending its live session).
+pub fn show_live_blob(state: AppState, name: &str, data: Arc<Vec<u8>>) {
     state.shown.set_value(Some(Shown::Blob {
         name: name.to_string(),
-        data: Arc::new(data.to_vec()),
+        data,
     }));
     state.overlays.set(Vec::new());
     state.boot_overlays.set(Vec::new());
@@ -422,7 +430,17 @@ pub fn show_blob(state: AppState, name: &str, data: &[u8]) {
     rebuild(state, true, busy);
 }
 
+/// A device's tree changed: swap it in, keeping overlays and the web.
+pub fn replace_live_blob(state: AppState, name: &str, data: Arc<Vec<u8>>) {
+    state.shown.set_value(Some(Shown::Blob {
+        name: name.to_string(),
+        data,
+    }));
+    rebuild(state, false, "Updating…");
+}
+
 pub fn show_board(state: AppState, path: &str) {
+    crate::ssh::disconnect(state);
     state.shown.set_value(Some(Shown::Board {
         path: path.to_string(),
     }));
@@ -460,6 +478,7 @@ pub fn show_composite(state: AppState, dtb: &str) {
         }
         overlays.push(OverlaySpec::source(&src));
     }
+    crate::ssh::disconnect(state);
     state.shown.set_value(Some(Shown::Board { path: base_src }));
     state.overlays.set(overlays);
     state.sources_open.set(false);
@@ -550,7 +569,7 @@ pub fn show_differences(state: AppState) {
     );
 }
 
-async fn sleep(ms: i32) {
+pub(crate) async fn sleep(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         if let Some(w) = web_sys::window() {
             let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
@@ -605,8 +624,18 @@ pub fn run_startup(state: AppState, backend: BackendHandle) {
                 Err(e) => state.notify(format!("Couldn't open files: {e}"), true),
             }
         }
+        let mut ssh_error = None;
+        if let Some(request) = start.ssh.clone() {
+            ssh_error = crate::ssh::connect_at_start(state, request).await.err();
+        }
+        if let Some(e) = &ssh_error
+            && (start.smoke || start.smoke_watch)
+        {
+            crate::tauri::report(&format!("timber-smoke ssh-error={e}")).await;
+        }
+        let expect_doc = !start.files.is_empty() || (start.ssh.is_some() && ssh_error.is_none());
         if start.smoke || start.smoke_watch {
-            smoke_report(state, !start.files.is_empty()).await;
+            smoke_report(state, expect_doc).await;
         }
         if start.smoke_watch {
             // Wait for a watched folder to reload, then report again.
@@ -614,7 +643,7 @@ pub fn run_startup(state: AppState, backend: BackendHandle) {
             while RELOADS.with(Cell::get) == reloads {
                 sleep(100).await;
             }
-            smoke_report(state, !start.files.is_empty()).await;
+            smoke_report(state, expect_doc).await;
         }
         if start.smoke || start.smoke_watch {
             crate::tauri::quit().await;
@@ -646,6 +675,9 @@ async fn smoke_report(state: AppState, expect_doc: bool) {
             .collect();
         let composites = built.iter().filter(|t| t.composite.is_some()).count();
         line.push_str(&format!(" built={} composites={composites}", built.len()));
+    }
+    if let Some(live) = state.ssh.live.get_untracked() {
+        line.push_str(&format!(" live={} from={}", live.label, live.path));
     }
     if let Some(doc) = state.document() {
         line.push_str(&format!(

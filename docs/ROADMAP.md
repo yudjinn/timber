@@ -79,14 +79,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Esc closes dialogs even while typing in one of their fields
 
 ## M5 · SSH (desktop) (D-028…D-031)
-- [ ] russh client in the desktop app; `~/.ssh/config` (Host patterns, HostName/User/Port/IdentityFile/ProxyJump/ProxyCommand)
-- [ ] Auth: agent, key files (+ passphrase), none, password (incl. empty), keyboard-interactive (password-style)
-- [ ] Host keys: TOFU into Timber's `known_hosts`, read-only `~/.ssh/known_hosts`, changed-key re-trust (D-028)
-- [ ] Extra options: `-J`/ProxyJump via system ssh, ProxyCommand, `-p/-l/-i/-o …` (D-029)
-- [ ] Fetch: tar → od → /sys/firmware/fdt; tar/od → `Tree`; configurable tree path
-- [ ] `/proc/config.gz` offered as kernel config (D-030)
-- [ ] Connect dialog, recent devices, live session with Refresh / auto-refresh (D-031)
-- [ ] Tests against a throwaway sshd (key auth, host keys, tar/od, config.gz, refresh); manual check of password auth on a real board
+- [x] russh client in the desktop app; `~/.ssh/config` (Host patterns, Include, HostName/User/Port/IdentityFile/ProxyJump/ProxyCommand/ConnectTimeout)
+- [x] Auth: agent, key files (+ passphrase), none, password (incl. empty), keyboard-interactive (password-style)
+- [x] Host keys: TOFU into Timber's `known_hosts`, read-only `~/.ssh/known_hosts`, changed-key re-trust (D-028)
+- [x] Extra options: `-J`/ProxyJump via system ssh, ProxyCommand, `-p/-l/-i/-o …` (D-029)
+- [x] Fetch: tar (gzipped when possible) → od → /sys/firmware/fdt; tar/od → `Tree`; configurable tree path
+- [x] `/proc/config.gz` offered as kernel config (D-030)
+- [x] Connect dialog, recent devices, live session with Refresh / auto-refresh, reconnect after reboot (D-031)
+- [x] `timber --ssh TARGET [--ssh-options …] [--tree-path …]`
+- [x] Verified: throwaway-sshd tests (key auth, passphrases, unknown/changed host keys, ProxyCommand, tar.gz/tar/od, config.gz, reconnect); `--ssh … --smoke` against the Rock 5B tree served as a fake `/proc/device-tree` (813 nodes, rk3588-rock-5b.dts at 100%, 3 differences, the same as the DTB file); UI flows in headless Chromium against a mocked backend
+- [ ] Manual check against a real board: password and keyboard-interactive logins (an unprivileged sshd can't test them), a real `/proc/device-tree`, busybox `tar`/`od`
+- [ ] Manual check on Windows (agent over the OpenSSH named pipe, ProxyCommand via `cmd /C`) and macOS
 
 ## M6 · Diff
 - [ ] Phandle-normalised tree diff

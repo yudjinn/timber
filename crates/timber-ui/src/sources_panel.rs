@@ -412,6 +412,20 @@ pub fn SourcesPanel() -> impl IntoView {
                                 let b = b_files.clone();
                                 move |_| open_files(state, b.clone())
                             }>"Open DTB / DTS files…"</button>
+                            <button
+                                class:unavailable=!state.capabilities.desktop
+                                title=if state.capabilities.desktop { "Read a running device's tree over SSH" } else { "Requires the desktop app" }
+                                on:click=move |_| {
+                                    if state.capabilities.desktop {
+                                        state.sources_open.set(false);
+                                        state.ssh.open.set(true);
+                                    } else {
+                                        state.notify("SSH requires the desktop app.", false);
+                                    }
+                                }
+                            >
+                                "Connect to a device…"
+                            </button>
                         </div>
                         <Show when=move || !state.sources.with(|s| s.boards.is_empty())>
                             <p class="muted small">"Or show a board from the sources:"</p>

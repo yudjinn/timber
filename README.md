@@ -1,6 +1,6 @@
 # Timber
 
-A device tree viewer. Open a `.dtb` or `.dts`, add the kernel/BSP folders it comes from, and (soon, in the desktop app) connect to a live device over SSH. The tree is drawn as a web you grow outward: click a node to see its children, then pick the ones to add.
+A device tree viewer. Open a `.dtb` or `.dts`, add the kernel/BSP folders it comes from, or (in the desktop app) read a running device's tree over SSH. The tree is drawn as a web you grow outward: click a node to see its children, then pick the ones to add.
 
 With source folders added, a DTB is matched to the board it was built from, so every node shows where it's defined and overridden, and anything the bootloader changed is flagged. Views export as SVG or PNG for documentation.
 
@@ -30,12 +30,19 @@ cargo tauri build        # release bundles (AppImage/deb, msi, dmg) in target/re
 
 # The binary takes files and source folders:
 timber board.dtb --source ~/src/linux --source ~/bsp --config ~/src/linux/.config
+
+# ...or connects to a device at launch (host, user@host:port, or an ~/.ssh/config alias):
+timber --ssh root@192.168.1.50 --source ~/src/linux
+timber --ssh rock5b --ssh-options "-J me@gateway"
 ```
+
+**SSH:** toolbar → **SSH**. Logins try your agent, your keys, then a password (an empty one first, as many dev boards use). Host keys you accept are kept in Timber's own `known_hosts` in the app data folder (`~/.local/share/dev.timber.viewer/` on Linux); `~/.ssh/known_hosts` is read but never changed. Jump hosts (`-J`, `ProxyJump`) go through your system `ssh`, so they need key or agent logins.
 
 ## Development
 
 ```sh
 cargo test                       # unit tests + golden tests against dtc (needs cpp and dtc on PATH)
+                                 # SSH tests start a throwaway sshd as you (skipped without /usr/bin/sshd)
 
 # Compare against every board and overlay in a kernel checkout:
 TIMBER_KERNEL_DIR=~/src/linux TIMBER_KERNEL_ARCH=arm64 cargo test --release --test golden kernel_tree
@@ -50,4 +57,4 @@ cargo run --release -p timber-core --example compile -- ~/src/linux arch/arm64/b
 |---|---|
 | `crates/timber-core` | Tree model, DTB reader/writer, DTS compiler (preprocessor, dtc-compatible), formatting |
 | `crates/timber-ui` | Leptos UI compiled to wasm |
-| `crates/timber-desktop` | Tauri 2 desktop app: native dialogs, folders from disk, watcher |
+| `crates/timber-desktop` | Tauri 2 desktop app: native dialogs, folders from disk, watcher, SSH (russh) |

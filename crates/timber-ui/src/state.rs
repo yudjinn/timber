@@ -280,6 +280,8 @@ pub struct AppState {
     pub settings_open: RwSignal<bool>,
     /// A long-running step in progress (reading a folder, matching a board).
     pub busy: RwSignal<Option<String>>,
+    /// SSH: the connect dialog and the live device.
+    pub ssh: crate::ssh::SshState,
     pub capabilities: Capabilities,
 }
 
@@ -309,6 +311,7 @@ impl AppState {
             disk_paths: StoredValue::new_local(HashMap::new()),
             editor_cmd: RwSignal::new(String::new()),
             settings_open: RwSignal::new(false),
+            ssh: crate::ssh::SshState::new(),
             capabilities,
         }
     }
@@ -331,6 +334,43 @@ impl AppState {
         self.selected.set(Some(Tree::ROOT));
         self.popup.set(Some(Tree::ROOT));
         self.diagnostics_open.set(errors > 0);
+    }
+
+    /// Swaps in a tree whose shape changed (a device's tree after a refresh, sources edited),
+    /// keeping the web: nodes still there stay where they were, by path, as do the
+    /// selection, popup, and camera.
+    pub fn set_document_keeping_web(&self, doc: Document) {
+        let Some(old) = self.document() else {
+            return self.set_document(doc);
+        };
+        let path = |id: Option<NodeId>| id.map(|id| old.tree.path(id));
+        let shown: Vec<(String, f64, f64, bool)> = self.graph.sim.with_value(|s| {
+            s.nodes
+                .iter()
+                .map(|n| (old.tree.path(n.id), n.x, n.y, n.fixed))
+                .collect()
+        });
+        let (selected, popup) = (
+            path(self.selected.get_untracked()),
+            path(self.popup.get_untracked()),
+        );
+        let cam = self.graph.cam.get_value();
+        let tree = doc.tree.clone();
+        self.doc.set(Some(Arc::new(doc)));
+        self.graph.reset();
+        self.graph.cam.set_value(cam);
+        for (p, x, y, fixed) in &shown {
+            if let Some(id) = tree.find(p) {
+                self.graph.reveal(&tree, id);
+                self.graph
+                    .sim
+                    .update_value(|s| s.set_pos(id, *x, *y, *fixed));
+            }
+        }
+        let find = |p: Option<String>| p.and_then(|p| tree.find(&p));
+        self.selected.set(find(selected).or(Some(Tree::ROOT)));
+        self.popup.set(find(popup));
+        self.graph.redraw();
     }
 
     /// Swaps in an updated version of the same tree (e.g. new source annotations), keeping

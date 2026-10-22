@@ -17,3 +17,6 @@ tauri = { version = "2.12.5", features = [] }
 tauri-plugin-dialog = "2.8.3"
 serde = { version = "1.0.228", features = ["derive"] }
 notify = "8.2.0"
+russh = { version = "0.64.1", default-features = false, features = ["ring", "rsa", "flate2"] }
+tokio = { version = "1.54.0", features = ["net", "process", "io-util", "time", "sync", "macros", "rt-multi-thread"] }
+flate2 = "1.1.10"

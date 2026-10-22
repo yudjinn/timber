@@ -199,17 +199,20 @@ pub fn Toolbar() -> impl IntoView {
                         aria-disabled=(!desktop).to_string()
                         title=if desktop { "Connect to a device over SSH" } else { "Requires the desktop app" }
                         on:click=move |_| {
-                            let msg = if desktop {
-                                "Connecting to devices over SSH arrives in milestone M5."
+                            if desktop {
+                                state.ssh.open.set(true);
                             } else {
-                                "SSH requires the desktop app: browsers can't open network connections to your devices."
-                            };
-                            state.notify(msg, false);
+                                state.notify(
+                                    "SSH requires the desktop app: browsers can't open network connections to your devices.",
+                                    false,
+                                );
+                            }
                         }
                     >
                         "SSH"
                         {(!desktop).then(|| view! { <span class="badge">"Desktop"</span> })}
                     </button>
+                    <crate::ssh::LiveBar />
                 </div>
                 <div class="spacer"></div>
                 {move || state.doc.with(|d| d.as_ref().map(|d| {

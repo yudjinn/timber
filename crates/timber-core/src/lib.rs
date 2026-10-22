@@ -7,6 +7,7 @@ pub mod folder;
 pub mod format;
 pub mod kbuild;
 mod lex;
+pub mod live;
 pub mod overlay;
 mod preprocess;
 pub mod source_map;

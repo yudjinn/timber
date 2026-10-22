@@ -208,13 +208,15 @@ impl Backend for TauriBackend {
     }
 }
 
-/// What the app was launched with: `timber [FILE…] [--source DIR…] [--smoke]`.
+/// What the app was launched with: `timber [FILE…] [--source DIR…] [--ssh TARGET] [--smoke]`.
 pub struct Startup {
     pub files: Vec<String>,
     pub sources: Vec<String>,
     pub config: Option<String>,
     pub smoke: bool,
     pub smoke_watch: bool,
+    /// `--ssh TARGET`, with `--ssh-options` and `--tree-path`.
+    pub ssh: Option<SshRequest>,
 }
 
 fn strings(v: &JsValue) -> Vec<String> {
@@ -231,6 +233,13 @@ pub async fn startup() -> Option<Startup> {
         config: get(&s, "config").as_string(),
         smoke: get(&s, "smoke").as_bool().unwrap_or(false),
         smoke_watch: get(&s, "smoke_watch").as_bool().unwrap_or(false),
+        ssh: get(&s, "ssh").as_string().map(|target| SshRequest {
+            target,
+            auth: "auto".into(),
+            options: get(&s, "ssh_options").as_string().unwrap_or_default(),
+            tree_path: get(&s, "tree_path").as_string().unwrap_or_default(),
+            ..SshRequest::default()
+        }),
     })
 }
 
@@ -289,4 +298,164 @@ pub async fn report(line: &str) {
 
 pub async fn quit() {
     let _ = invoke("quit", object(&[])).await;
+}
+
+/// Why an SSH step failed (`timber-desktop/src/ssh/client.rs`, `SshError`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SshFailure {
+    pub kind: String,
+    pub message: String,
+    pub host_key: Option<Box<HostKey>>,
+    pub key_file: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostKey {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub old_fingerprint: Option<String>,
+    pub key: String,
+}
+
+impl SshFailure {
+    fn from_error(e: String) -> Self {
+        let parsed = js_sys::JSON::parse(&e).ok().filter(|v| v.is_object());
+        let Some(v) = parsed else {
+            return SshFailure {
+                kind: "connect".into(),
+                message: e,
+                host_key: None,
+                key_file: None,
+            };
+        };
+        let s = |v: &JsValue, k: &str| get(v, k).as_string();
+        let hk = get(&v, "host_key");
+        SshFailure {
+            kind: s(&v, "kind").unwrap_or_default(),
+            message: s(&v, "message").unwrap_or(e),
+            host_key: hk.is_object().then(|| {
+                Box::new(HostKey {
+                    host: s(&hk, "host").unwrap_or_default(),
+                    port: get(&hk, "port").as_f64().unwrap_or(22.0) as u16,
+                    algorithm: s(&hk, "algorithm").unwrap_or_default(),
+                    fingerprint: s(&hk, "fingerprint").unwrap_or_default(),
+                    old_fingerprint: s(&hk, "old_fingerprint"),
+                    key: s(&hk, "key").unwrap_or_default(),
+                })
+            }),
+            key_file: s(&v, "key_file"),
+        }
+    }
+}
+
+/// The connect dialog's fields (`Request` in the desktop app).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SshRequest {
+    pub target: String,
+    pub user: String,
+    pub port: Option<u16>,
+    /// `auto`, `password`, or `key`.
+    pub auth: String,
+    pub password: Option<String>,
+    pub key_file: String,
+    pub passphrase: Option<String>,
+    pub options: String,
+    pub tree_path: String,
+}
+
+impl SshRequest {
+    fn to_js(&self) -> JsValue {
+        let opt = |s: &str| {
+            if s.trim().is_empty() {
+                JsValue::NULL
+            } else {
+                JsValue::from_str(s.trim())
+            }
+        };
+        let secret = |s: &Option<String>| s.as_deref().map_or(JsValue::NULL, JsValue::from_str);
+        object(&[
+            ("target", JsValue::from_str(self.target.trim())),
+            ("user", opt(&self.user)),
+            ("port", self.port.map_or(JsValue::NULL, JsValue::from)),
+            ("auth", JsValue::from_str(&self.auth)),
+            ("password", secret(&self.password)),
+            ("key_file", opt(&self.key_file)),
+            ("passphrase", secret(&self.passphrase)),
+            ("options", JsValue::from_str(&self.options)),
+            ("tree_path", opt(&self.tree_path)),
+        ])
+    }
+}
+
+pub struct SshConnected {
+    pub id: u32,
+    /// `user@host`.
+    pub label: String,
+    pub host: String,
+}
+
+/// A read of the device's tree.
+pub struct SshTree {
+    /// 0 tar, 1 od (both the running tree), 2 the boot FDT.
+    pub method: u8,
+    pub has_config: bool,
+    /// Where on the device it was read from.
+    pub path: String,
+    pub dtb: Vec<u8>,
+}
+
+pub async fn ssh_connect(request: &SshRequest) -> Result<SshConnected, SshFailure> {
+    let v = invoke("ssh_connect", object(&[("request", request.to_js())]))
+        .await
+        .map_err(SshFailure::from_error)?;
+    Ok(SshConnected {
+        id: get(&v, "id").as_f64().unwrap_or(0.0) as u32,
+        label: get(&v, "label").as_string().unwrap_or_default(),
+        host: get(&v, "host").as_string().unwrap_or_default(),
+    })
+}
+
+pub async fn ssh_fetch(id: u32) -> Result<SshTree, SshFailure> {
+    let v = invoke("ssh_fetch", object(&[("id", JsValue::from(id))]))
+        .await
+        .map_err(SshFailure::from_error)?;
+    let bytes = Uint8Array::new(&v).to_vec();
+    let bad = || SshFailure::from_error("unexpected response from the desktop app".into());
+    if bytes.len() < 10 || &bytes[..4] != b"TMBL" {
+        return Err(bad());
+    }
+    let len = u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]) as usize;
+    let path = bytes.get(10..10 + len).ok_or_else(bad)?;
+    Ok(SshTree {
+        method: bytes[4],
+        has_config: bytes[5] == 1,
+        path: String::from_utf8_lossy(path).into_owned(),
+        dtb: bytes[10 + len..].to_vec(),
+    })
+}
+
+pub async fn ssh_device_config(id: u32) -> Result<Vec<u8>, SshFailure> {
+    let v = invoke("ssh_device_config", object(&[("id", JsValue::from(id))]))
+        .await
+        .map_err(SshFailure::from_error)?;
+    Ok(Uint8Array::new(&v).to_vec())
+}
+
+pub async fn ssh_disconnect(id: u32) {
+    let _ = invoke("ssh_disconnect", object(&[("id", JsValue::from(id))])).await;
+}
+
+pub async fn ssh_trust_host(key: &HostKey) -> Result<(), String> {
+    invoke(
+        "ssh_trust_host",
+        object(&[
+            ("host", JsValue::from_str(&key.host)),
+            ("port", JsValue::from(key.port)),
+            ("key", JsValue::from_str(&key.key)),
+        ]),
+    )
+    .await
+    .map(|_| ())
 }

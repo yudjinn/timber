@@ -133,8 +133,10 @@ pub fn App() -> impl IntoView {
             && (state.help_open.get_untracked()
                 || state.sources_open.get_untracked()
                 || state.settings_open.get_untracked()
+                || state.ssh.open.get_untracked()
                 || state.choose.with_untracked(Option::is_some))
         {
+            state.ssh.open.set(false);
             state.help_open.set(false);
             state.sources_open.set(false);
             state.settings_open.set(false);
@@ -220,6 +222,8 @@ pub fn App() -> impl IntoView {
             <Diagnostics />
             <SourceDrawer />
             <SettingsDialog />
+            <crate::ssh::ConnectDialog />
+            <crate::ssh::ConfigOffer />
             <ChooseMain />
             <SourcesPanel />
             <HelpDialog />
