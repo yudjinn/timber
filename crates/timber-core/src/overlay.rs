@@ -58,8 +58,10 @@ fn local_fixups(ov: &Tree) -> Vec<(NodeId, String, Vec<usize>)> {
         for p in &ov.node(lf).props {
             let offs = p
                 .value
-                .chunks_exact(4)
-                .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]) as usize)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_be_bytes(*c) as usize)
                 .collect();
             out.push((node, p.name.clone(), offs));
         }

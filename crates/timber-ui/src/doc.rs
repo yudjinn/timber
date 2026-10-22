@@ -5,6 +5,7 @@ use timber_core::source_map::SourceMap;
 use timber_core::{Diagnostic, NodeId, Severity, Tree, bsp, dtb, format};
 
 use crate::kind::{Kind, classify};
+use crate::overlays::{Overlaid, OverlayMark};
 use crate::search::SearchIndex;
 use crate::sources::SourceLink;
 
@@ -36,6 +37,8 @@ pub struct Document {
     pub borrowed_labels: Vec<bool>,
     /// How each node compares with the linked source (blobs only).
     pub diff: Option<DiffInfo>,
+    /// What the overlays applied to this tree set or added.
+    pub overlay_marks: Vec<OverlayMark>,
     pub diagnostics: Vec<Diagnostic>,
     /// The tree is an overlay (`/plugin/` source or `__fixups__`/`fragment@` blob).
     pub overlay: bool,
@@ -66,6 +69,7 @@ impl Document {
             link: None,
             borrowed_labels,
             diff: None,
+            overlay_marks: Vec::new(),
             diagnostics,
             overlay,
             kinds,
@@ -92,6 +96,22 @@ impl Document {
         ))
     }
 
+    /// Replaces the tree with one that has overlays applied (before any source link).
+    pub fn with_overlays(self, overlaid: Overlaid) -> Self {
+        let mut diagnostics = self.diagnostics;
+        diagnostics.extend(overlaid.diagnostics);
+        let mut doc = Self::new(
+            self.name,
+            self.origin,
+            overlaid.tree,
+            self.source_map,
+            diagnostics,
+            self.overlay,
+        );
+        doc.overlay_marks = overlaid.marks;
+        doc
+    }
+
     pub fn from_compiled(path: &str, compiled: Compiled) -> Self {
         Self::new(
             path.to_string(),
@@ -107,10 +127,18 @@ impl Document {
     /// Nodes without labels borrow them from the source, so references read `&cru` rather
     /// than `&{/clock-controller@fd7c0000}` and labels are searchable.
     pub fn relinked(&self, link: Option<SourceLink>) -> Self {
-        let diagnostics = link
-            .as_ref()
-            .map(|l| l.diagnostics.clone())
-            .unwrap_or_default();
+        // Overlay messages stay; the previous link's compile messages are replaced.
+        let mut diagnostics: Vec<Diagnostic> = self
+            .diagnostics
+            .iter()
+            .filter(|d| d.line == 0 && d.col == 0)
+            .cloned()
+            .collect();
+        diagnostics.extend(
+            link.as_ref()
+                .map(|l| l.diagnostics.clone())
+                .unwrap_or_default(),
+        );
         let mut tree = self.tree.clone();
         for (id, &borrowed) in self.borrowed_labels.iter().enumerate() {
             if borrowed {
@@ -136,6 +164,7 @@ impl Document {
             link,
             borrowed_labels,
             diff,
+            overlay_marks: self.overlay_marks.clone(),
             diagnostics,
             overlay: self.overlay,
             kinds: self.kinds.clone(),
@@ -290,13 +319,13 @@ mod tests {
             EntryKind::Folder,
             vec![("bsp/b.dts".into(), src.as_bytes().to_vec())],
         );
-        let mut tree = set.compile("bsp/b.dts").tree;
+        let mut tree = set.compile_as("bsp/b.dts", false).tree;
         let a = tree.find("/soc/a").unwrap();
         tree.node_mut(a).set_prop("x", vec![0, 0, 0, 9]);
         let soc = tree.find("/soc").unwrap();
         tree.add_child(soc, "extra");
         let doc = Document::from_blob("b.dtb", &dtb::write(&tree)).unwrap();
-        let link = annotate(&doc.tree, "b.dtb", &set, None);
+        let link = annotate(&doc.tree, "b.dtb", &set, None, &[]);
         let doc = doc.relinked(link);
         let diff = doc.diff.as_ref().unwrap();
         let t = &doc.tree;

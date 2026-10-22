@@ -9,6 +9,7 @@ mod export;
 mod graph;
 mod help;
 mod kind;
+mod overlays;
 mod panel;
 mod popup;
 mod search;

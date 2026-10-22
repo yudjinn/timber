@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::backend::{Capabilities, FolderHandle};
 use crate::doc::Document;
 use crate::graph::sim::Sim;
+use crate::overlays::OverlaySpec;
 use crate::sources::{SharedSources, SourceSet};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -219,6 +220,13 @@ impl ThemePref {
     }
 }
 
+/// What the web shows, before overlays: rebuilt whenever sources or overlays change.
+#[derive(Debug, Clone)]
+pub enum Shown {
+    Blob { name: String, data: Arc<Vec<u8>> },
+    Board { path: String },
+}
+
 /// A place in a source file (paths are in the sources VFS).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
@@ -256,6 +264,11 @@ pub struct AppState {
     /// Folders that can be re-read, by mount name.
     pub folder_handles: StoredValue<HashMap<String, FolderHandle>, LocalStorage>,
     pub help_open: RwSignal<bool>,
+    pub shown: StoredValue<Option<Shown>, LocalStorage>,
+    /// Overlays applied to the tree shown.
+    pub overlays: RwSignal<Vec<OverlaySpec>>,
+    /// Overlays applied to a DTB's source board before comparing ("applied at boot").
+    pub boot_overlays: RwSignal<Vec<OverlaySpec>>,
     /// The location the source viewer shows.
     pub source_view: RwSignal<Option<SourceLocation>>,
     /// Viewer history: visited locations and the index of the current one.
@@ -288,6 +301,9 @@ impl AppState {
             folder_handles: StoredValue::new_local(HashMap::new()),
             help_open: RwSignal::new(false),
             busy: RwSignal::new(None),
+            shown: StoredValue::new_local(None),
+            overlays: RwSignal::new(Vec::new()),
+            boot_overlays: RwSignal::new(Vec::new()),
             source_view: RwSignal::new(None),
             source_history: StoredValue::new_local((Vec::new(), 0)),
             disk_paths: StoredValue::new_local(HashMap::new()),

@@ -128,21 +128,24 @@ pub fn App() -> impl IntoView {
             }
             return;
         }
+        // Esc closes an open dialog even while typing in one of its fields.
+        if key == "Escape"
+            && (state.help_open.get_untracked()
+                || state.sources_open.get_untracked()
+                || state.settings_open.get_untracked()
+                || state.choose.with_untracked(Option::is_some))
+        {
+            state.help_open.set(false);
+            state.sources_open.set(false);
+            state.settings_open.set(false);
+            state.choose.set(None);
+            return;
+        }
         if is_typing(&ev) || ev.ctrl_key() || ev.meta_key() || ev.alt_key() {
             return;
         }
         if key == "?" {
             state.help_open.update(|o| *o = !*o);
-            return;
-        }
-        if key == "Escape"
-            && (state.help_open.get_untracked()
-                || state.sources_open.get_untracked()
-                || state.settings_open.get_untracked())
-        {
-            state.help_open.set(false);
-            state.sources_open.set(false);
-            state.settings_open.set(false);
             return;
         }
         // Esc closes the child popup first, then the source viewer.

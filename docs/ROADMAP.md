@@ -66,14 +66,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Verified: `--smoke` (kernel tree + patched DTB → 100% match, 3 differences, under 3 s); `--smoke-watch` (editing a .dts while open → reloaded, 4 differences); web build re-checked in headless Chromium
 - [ ] Manual check of the native dialogs on Linux, Windows, macOS
 
-## M4 · BSP folders
+## M4 · BSP folders — done 2026-10-22
 - [x] Folder indexing (desktop native, M3; web, M2b/M2c)
 - [x] Config input: `.config` / defconfig / Yocto `KERNEL_DEVICETREE` (panel, drop, `--config`); arch from symbols or inferred from Makefiles
 - [x] dts Makefile evaluation (`dtb-$(CONFIG_…)`, subdirs, composites, `DTC_FLAGS -@`, variables, conditionals) → board picker (built first, chips); built boards win matching ties; kernel test `kernel_makefiles`
 - [x] Source viewer drawer (syntax highlight, block highlight, include/label links, history); open in editor via template (D-026); Settings dialog; clickable source locations in the node panel and compiler messages
 - [x] Folder watcher + recompile (desktop, M3); Reload button (web, M2c)
 - [x] Core overlay application (libfdt semantics); kernel test `kernel_overlays`: 473/473 composites match `fdtoverlay`
-- [ ] UI: two overlay lists (D-027), composites in the board picker, overlay source locations
+- [x] UI: two overlay lists (D-027) with reorder/remove, from files or sources; composites in the board picker (only when buildable); "set by / added by overlay" source links
+- [x] Verified in headless Chromium: composite `rk3588-rock-5b-pcie-ep` builds with overlay source links; a DTB with the overlay applied at boot goes from 4 differences to 0 once the overlay is added under "applied at boot"
+- [x] Esc closes dialogs even while typing in one of their fields
 
 ## M5 · SSH (desktop)
 - [ ] Connect dialog; ssh-config aliases

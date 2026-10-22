@@ -2,16 +2,20 @@
 //! source board a DTB is matched to (DESIGN §7a).
 
 use leptos::prelude::*;
-use timber_core::vfs::Vfs;
 
 use crate::actions::{
-    add_config, add_folder, choose_board_for_blob, open_files, reload_folder, remove_config,
-    remove_source, set_defines, show_board,
+    add_config, add_folder, add_overlay_files, choose_board_for_blob, choose_composite_for_blob,
+    open_files, reload_folder, remove_config, remove_source, set_defines, set_overlay_list,
+    show_board, show_composite,
 };
 use crate::backend::{BackendHandle, FolderAccess};
 use crate::doc::Origin;
+use crate::overlays::{OverlayFrom, OverlaySpec};
 use crate::sources::{ConfigSource, EntryKind, format_defines};
 use crate::state::AppState;
+
+/// Picker rows for composite boards carry this prefix before the `.dtb` path.
+pub const COMPOSITE: &str = "composite:";
 
 /// Boards listed at once in a picker.
 const PICKER_LIMIT: usize = 60;
@@ -27,7 +31,13 @@ struct PickerRow {
 }
 
 #[component]
-fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> impl IntoView {
+fn BoardPicker(
+    #[prop(into)] on_pick: Callback<String>,
+    placeholder: String,
+    /// List overlay sources (`.dtso`) instead of boards.
+    #[prop(optional)]
+    overlays: bool,
+) -> impl IntoView {
     let state = expect_context::<AppState>();
     let query = RwSignal::new(String::new());
     let results = Memo::new(move |_| {
@@ -35,13 +45,14 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
         let terms: Vec<&str> = q.split_whitespace().collect();
         state.sources.with(|set| {
             // With a config and no query, list the boards it builds.
-            if terms.is_empty() && set.config.is_none() {
+            if terms.is_empty() && (set.config.is_none() || overlays) {
                 return Vec::new();
             }
+            let matches = |hay: &str| terms.iter().all(|t| hay.to_lowercase().contains(t));
             let mut hits: Vec<PickerRow> = set
                 .boards
                 .iter()
-                .filter(|b| !b.overlay)
+                .filter(|b| b.overlay == overlays)
                 .filter(|b| {
                     if terms.is_empty() {
                         return set.built(&b.path) == Some(true);
@@ -65,6 +76,38 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
                         .unwrap_or_default(),
                 })
                 .collect();
+            // Composite boards from the Makefiles: a base plus overlays (`name-dtbs := …`).
+            if !overlays {
+                for t in set
+                    .kbuild
+                    .targets
+                    .iter()
+                    // Only composites whose base and overlay sources are all present can be built.
+                    .filter(|t| t.composite.is_some() && set.buildable(t))
+                {
+                    let wanted = if terms.is_empty() {
+                        t.built == Some(true)
+                    } else {
+                        matches(&t.dtb)
+                    };
+                    if wanted {
+                        let n = t
+                            .composite
+                            .as_ref()
+                            .map_or(0, |c| c.len().saturating_sub(1));
+                        let base = t.source.rsplit('/').next().unwrap_or(&t.source);
+                        hits.push(PickerRow {
+                            path: format!("{COMPOSITE}{}", t.dtb),
+                            detail: format!(
+                                "{base} + {n} overlay{}",
+                                if n == 1 { "" } else { "s" }
+                            ),
+                            built: t.built.or(set.config.as_ref().map(|_| false)),
+                            gates: t.symbols.clone(),
+                        });
+                    }
+                }
+            }
             hits.sort_by(|a, b| {
                 (a.built != Some(true), &a.path).cmp(&(b.built != Some(true), &b.path))
             });
@@ -105,7 +148,11 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
                                             query.set(String::new());
                                             on_pick.run(p.clone());
                                         }>
-                                            <span class="mono">{row.path.clone()}{chip}</span>
+                                            <span class="mono">
+                                                {row.path.strip_prefix(COMPOSITE).unwrap_or(&row.path).to_string()}
+                                                {row.path.starts_with(COMPOSITE).then(|| view! { <span class="chip">"composite"</span> })}
+                                                {chip}
+                                            </span>
                                             <span class="muted small">{row.detail.clone()}</span>
                                         </button>
                                     </li>
@@ -117,6 +164,78 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
                 </ul>
             </Show>
         </div>
+    }
+}
+
+/// An overlay list: the tree shown's (`boot = false`) or a DTB's source board's.
+#[component]
+fn OverlayList(boot: bool) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let backend = StoredValue::new(expect_context::<BackendHandle>());
+    let list = if boot {
+        state.boot_overlays
+    } else {
+        state.overlays
+    };
+    let move_item = move |i: usize, delta: isize| {
+        let mut l = list.get_untracked();
+        let j = i as isize + delta;
+        if j >= 0 && (j as usize) < l.len() {
+            l.swap(i, j as usize);
+            set_overlay_list(state, boot, l);
+        }
+    };
+    let remove = move |i: usize| {
+        let mut l = list.get_untracked();
+        l.remove(i);
+        set_overlay_list(state, boot, l);
+    };
+    let items = move || {
+        let l = list.get();
+        let n = l.len();
+        if n == 0 {
+            return view! { <li class="muted small">"None"</li> }.into_any();
+        }
+        l.into_iter()
+            .enumerate()
+            .map(|(i, spec)| {
+                let kind = match &spec.from {
+                    OverlayFrom::Blob(_) => "dtbo".to_string(),
+                    OverlayFrom::Source(p) => p.clone(),
+                };
+                view! {
+                    <li class="source-entry">
+                        <div>
+                            <div class="mono">{format!("{}. {}", i + 1, spec.name)}</div>
+                            <div class="muted small mono">{kind}</div>
+                        </div>
+                        <div class="row tight">
+                            <button class="small" disabled=i == 0 title="Apply earlier" on:click=move |_| move_item(i, -1)>"↑"</button>
+                            <button class="small" disabled=i + 1 == n title="Apply later" on:click=move |_| move_item(i, 1)>"↓"</button>
+                            <button class="small" on:click=move |_| remove(i)>"Remove"</button>
+                        </div>
+                    </li>
+                }
+            })
+            .collect_view()
+            .into_any()
+    };
+    view! {
+        <ul class="plain sources-list">{items}</ul>
+        <div class="row">
+            <button on:click=move |_| add_overlay_files(state, backend.get_value(), boot)>"Add .dtbo / .dtso…"</button>
+        </div>
+        <Show when=move || state.sources.with(|s| s.boards.iter().any(|b| b.overlay))>
+            <BoardPicker
+                overlays=true
+                placeholder="Or add an overlay from the sources…".to_string()
+                on_pick=move |path: String| {
+                    let mut l = list.get_untracked();
+                    l.push(OverlaySpec::source(&path));
+                    set_overlay_list(state, boot, l);
+                }
+            />
+        </Show>
     }
 }
 
@@ -262,8 +381,16 @@ pub fn SourcesPanel() -> impl IntoView {
                 })}
                 <BoardPicker
                     placeholder="Choose a different board…".to_string()
-                    on_pick=move |path: String| choose_board_for_blob(state, Some(path))
+                    on_pick=move |path: String| match path.strip_prefix(COMPOSITE) {
+                        Some(dtb) => choose_composite_for_blob(state, dtb),
+                        None => choose_board_for_blob(state, Some(path)),
+                    }
                 />
+                <h5>"Overlays applied at boot"</h5>
+                <p class="muted small">
+                    "If the device's DTB already had overlays applied (by U-Boot, for example), add them here so they're part of the comparison rather than showing as differences."
+                </p>
+                <OverlayList boot=true />
             </section>
         })
     };
@@ -290,8 +417,16 @@ pub fn SourcesPanel() -> impl IntoView {
                             <p class="muted small">"Or show a board from the sources:"</p>
                             <BoardPicker
                                 placeholder=format!("Search {} boards by path, compatible, or model…", state.sources.with_untracked(|s| s.boards.len()))
-                                on_pick=move |path: String| show_board(state, &path)
+                                on_pick=move |path: String| match path.strip_prefix(COMPOSITE) {
+                                    Some(dtb) => show_composite(state, dtb),
+                                    None => show_board(state, &path),
+                                }
                             />
+                        </Show>
+                        <Show when=move || state.doc.with(Option::is_some)>
+                            <h5>"Overlays"</h5>
+                            <p class="muted small">"Applied to the tree shown, in order, the way U-Boot or fdtoverlay would."</p>
+                            <OverlayList boot=false />
                         </Show>
                     </section>
 
@@ -323,7 +458,7 @@ pub fn SourcesPanel() -> impl IntoView {
                                 .kbuild
                                 .targets
                                 .iter()
-                                .filter(|t| t.built == Some(true) && set.vfs.exists(&t.source))
+                                .filter(|t| t.built == Some(true) && set.buildable(t))
                                 .count();
                             match &set.config {
                                 None => view! {

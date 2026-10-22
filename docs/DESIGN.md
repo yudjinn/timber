@@ -311,6 +311,15 @@ A missing include is a clear error that names the file and the line that include
 
 `.dtso` sources are compiled in `-@` mode, as the kernel builds overlays. Applying overlays to a base needs the base's `__symbols__`, so a board from sources is compiled with `-@` whenever overlays are attached.
 
+**In the UI ([D-027](DECISIONS.md)):**
+- **Two lists in the Sources panel:**
+  - *Overlays*, under Tree shown, applied to what's displayed
+  - *Overlays applied at boot*, under a DTB's source board, applied to the source board before comparing
+- **Adding overlays:** each list takes `.dtbo` files, `.dtso` files (added to the sources), or overlays already in the sources. Entries can be reordered or removed.
+- **Composite boards** in the board picker (only when the base and every overlay are in the sources) open as the base with its overlays listed. Picking one as a DTB's source board fills the boot list.
+- **Node panel:** properties an overlay set show "set by camera.dtso:12" (or "(at boot)"); nodes it created show "added by …".
+- **Failures:** overlays that fail to compile or apply are reported in the compiler messages, and the rest still apply.
+
 **Verified:** all **473** kernel composite boards (`name-dtbs := base.dtb x.dtbo…`) match `fdtoverlay` exactly. That's the `kernel_overlays` golden test; 5 are skipped because `dtc`/`fdtoverlay` themselves reject them.
 
 ---

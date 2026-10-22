@@ -8,11 +8,12 @@ use std::time::Duration;
 use leptos::prelude::*;
 
 use crate::backend::{BackendHandle, FolderFilter, FolderHandle, PickedFolder, Progress};
-use crate::doc::{Document, InputFile, Origin, split_opened};
+use crate::doc::{Document, InputFile, split_opened};
+use crate::overlays::{OverlayFrom, OverlaySpec, apply_all};
 use timber_core::vfs::Vfs;
 
 use crate::sources::{ConfigSource, EntryKind, SourceSet, annotate, folder_filter, parse_defines};
-use crate::state::AppState;
+use crate::state::{AppState, Shown};
 
 const BOARD_CHOICE_KEY: &str = "timber.board:";
 
@@ -294,13 +295,41 @@ pub fn choose_board_for_blob(state: AppState, board: Option<String>) {
     refresh(state);
 }
 
+/// Uses a composite board (base + overlays) as the source for the DTB shown: the base is
+/// pinned and its overlays become the "applied at boot" list.
+pub fn choose_composite_for_blob(state: AppState, dtb: &str) {
+    let set = state.sources.get_untracked();
+    let Some(parts) = set
+        .kbuild
+        .targets
+        .iter()
+        .find(|t| t.dtb == dtb)
+        .and_then(|t| t.composite.clone())
+    else {
+        return;
+    };
+    let Some((base, rest)) = parts.split_first() else {
+        return;
+    };
+    let overlays = rest
+        .iter()
+        .map(|p| OverlaySpec::source(&format!("{}.dtso", p.trim_end_matches(".dtbo"))))
+        .collect();
+    state.boot_overlays.set(overlays);
+    choose_board_for_blob(
+        state,
+        Some(format!("{}.dts", base.trim_end_matches(".dtb"))),
+    );
+}
+
 fn linked(state: AppState, doc: &Document, set: &SourceSet) -> Document {
     if set.is_empty() {
         return doc.relinked(None);
     }
     let forced = board_choice(&doc.name).filter(|b| set.board(b).is_some());
+    let boot = state.boot_overlays.get_untracked();
     doc.relinked(
-        annotate(&doc.tree, &doc.name, set, forced.as_deref()).inspect(|link| {
+        annotate(&doc.tree, &doc.name, set, forced.as_deref(), &boot).inspect(|link| {
             if link.confidence < 0.5 {
                 state.notify(
                     format!(
@@ -314,67 +343,191 @@ fn linked(state: AppState, doc: &Document, set: &SourceSet) -> Document {
     )
 }
 
-pub fn show_blob(state: AppState, name: &str, data: &[u8]) {
-    let doc = match Document::from_blob(name, data) {
-        Ok(doc) => doc,
-        Err(e) => return state.notify(e, true),
-    };
+/// Builds the document for what's shown: the base (DTB or compiled board), the overlays
+/// attached to it, then for DTBs the link to their source board.
+fn build(state: AppState) -> Option<Result<Document, String>> {
+    let shown = state.shown.get_value()?;
     let set = state.sources.get_untracked();
-    if set.is_empty() {
-        let nodes = doc.tree.len();
-        state.set_document(doc);
-        state.notify(format!("Opened {name}: {nodes} nodes"), false);
-        return;
-    }
-    state.busy.set(Some("Matching source board…".into()));
+    let overlays = state.overlays.get_untracked();
+    let overlaid = |doc: Document| {
+        if overlays.is_empty() {
+            doc
+        } else {
+            let applied = apply_all(doc.tree.clone(), &set, &overlays);
+            doc.with_overlays(applied)
+        }
+    };
+    Some(match shown {
+        Shown::Blob { name, data } => {
+            Document::from_blob(&name, &data).map(|doc| linked(state, &overlaid(doc), &set))
+        }
+        Shown::Board { path } if !set.vfs.exists(&path) => {
+            Err(format!("{path} is no longer in the sources"))
+        }
+        Shown::Board { path } => {
+            // Boards the Makefile builds with `dtc -@` compile the same way; overlays need it too.
+            let symbols = set.target(&path).is_some_and(|t| t.symbols_flag) || !overlays.is_empty();
+            Ok(overlaid(Document::from_compiled(
+                &path,
+                set.compile_as(&path, symbols),
+            )))
+        }
+    })
+}
+
+/// Rebuilds the document. `fresh` starts a new view (new tree); otherwise the web is kept
+/// when the tree's shape is unchanged.
+fn rebuild(state: AppState, fresh: bool, busy: &str) {
+    state.busy.set(Some(busy.to_string()));
     after_paint(move || {
-        let doc = linked(state, &doc, &set);
+        let result = build(state);
         state.busy.set(None);
-        state.set_document(doc);
+        match result {
+            None => {}
+            Some(Err(e)) => state.notify(e, true),
+            Some(Ok(doc)) => {
+                let errors = doc.diagnostics.iter().any(|d| d.line == 0 && d.col == 0);
+                let same_shape = state
+                    .document()
+                    .is_some_and(|d| d.tree.len() == doc.tree.len());
+                if fresh || !same_shape {
+                    state.set_document(doc);
+                } else {
+                    state.replace_document(doc);
+                }
+                if errors {
+                    state.notify(
+                        "Some overlays couldn't be applied; see the compiler messages",
+                        true,
+                    );
+                    state.diagnostics_open.set(true);
+                }
+            }
+        }
     });
+}
+
+pub fn show_blob(state: AppState, name: &str, data: &[u8]) {
+    state.shown.set_value(Some(Shown::Blob {
+        name: name.to_string(),
+        data: Arc::new(data.to_vec()),
+    }));
+    state.overlays.set(Vec::new());
+    state.boot_overlays.set(Vec::new());
+    let busy = if state.sources.with_untracked(|s| s.is_empty()) {
+        "Opening…"
+    } else {
+        "Matching source board…"
+    };
+    rebuild(state, true, busy);
 }
 
 pub fn show_board(state: AppState, path: &str) {
+    state.shown.set_value(Some(Shown::Board {
+        path: path.to_string(),
+    }));
+    state.overlays.set(Vec::new());
+    state.sources_open.set(false);
+    rebuild(
+        state,
+        true,
+        &format!("Compiling {}…", path.rsplit('/').next().unwrap_or(path)),
+    );
+}
+
+/// Shows a composite board from the Makefiles (`name-dtbs := base.dtb x.dtbo …`): the base
+/// with its overlays attached.
+pub fn show_composite(state: AppState, dtb: &str) {
     let set = state.sources.get_untracked();
-    let path = path.to_string();
-    state.busy.set(Some(format!(
-        "Compiling {}…",
-        path.rsplit('/').next().unwrap_or(&path)
-    )));
-    after_paint(move || {
-        // Boards the Makefile builds with `dtc -@` compile the same way.
-        let symbols = set.target(&path).is_some_and(|t| t.symbols_flag);
-        let doc = Document::from_compiled(&path, set.compile_as(&path, symbols));
-        state.busy.set(None);
-        state.set_document(doc);
-        state.sources_open.set(false);
+    let Some(parts) = set
+        .kbuild
+        .targets
+        .iter()
+        .find(|t| t.dtb == dtb)
+        .and_then(|t| t.composite.clone())
+    else {
+        return state.notify(format!("{dtb} isn't a composite board"), true);
+    };
+    let Some((base, rest)) = parts.split_first() else {
+        return;
+    };
+    let base_src = format!("{}.dts", base.trim_end_matches(".dtb"));
+    let mut overlays = Vec::new();
+    for part in rest {
+        let src = format!("{}.dtso", part.trim_end_matches(".dtbo"));
+        if !set.vfs.exists(&src) {
+            return state.notify(format!("{src} isn't in the sources"), true);
+        }
+        overlays.push(OverlaySpec::source(&src));
+    }
+    state.shown.set_value(Some(Shown::Board { path: base_src }));
+    state.overlays.set(overlays);
+    state.sources_open.set(false);
+    rebuild(
+        state,
+        true,
+        &format!("Building {}…", dtb.rsplit('/').next().unwrap_or(dtb)),
+    );
+}
+
+/// Picks overlay files (`.dtbo`, or `.dtso` added to the sources) and attaches them to the
+/// tree shown, or with `boot`, to a DTB's source board.
+pub fn add_overlay_files(state: AppState, backend: BackendHandle, boot: bool) {
+    leptos::task::spawn_local(async move {
+        let files = match backend.0.open_files().await {
+            Ok(Some(files)) => files,
+            Ok(None) => return,
+            Err(e) => return state.notify(format!("Couldn't open files: {e}"), true),
+        };
+        let mut specs = Vec::new();
+        let mut sources = Vec::new();
+        for f in files {
+            if timber_core::dtb::is_dtb(&f.data) {
+                specs.push(OverlaySpec {
+                    name: f.name.clone(),
+                    from: OverlayFrom::Blob(Arc::new(f.data)),
+                });
+            } else if f.name.ends_with(".dtso") {
+                let base = f.name.rsplit('/').next().unwrap_or(&f.name).to_string();
+                specs.push(OverlaySpec::source(&format!("files/{base}")));
+                sources.push((f.name, f.data));
+            } else {
+                state.notify(
+                    format!("{} isn't an overlay (.dtbo or .dtso)", f.name),
+                    true,
+                );
+            }
+        }
+        if !sources.is_empty() {
+            let (set, _) = state
+                .sources
+                .get_untracked()
+                .with_files(EntryKind::Files, sources);
+            state.sources.set(Arc::new(set));
+        }
+        let list = if boot {
+            state.boot_overlays
+        } else {
+            state.overlays
+        };
+        list.update(|l| l.extend(specs));
+        refresh(state);
     });
 }
 
-/// Re-derives the tree shown after sources or defines changed.
+/// Replaces an overlay list (reorder or remove) and rebuilds.
+pub fn set_overlay_list(state: AppState, boot: bool, list: Vec<OverlaySpec>) {
+    if boot {
+        state.boot_overlays.set(list);
+    } else {
+        state.overlays.set(list);
+    }
+    refresh(state);
+}
+
+/// Re-derives the tree shown after sources, defines, or overlays changed.
 pub fn refresh(state: AppState) {
-    let Some(doc) = state.document() else { return };
-    let set = state.sources.get_untracked();
-    state.busy.set(Some(match doc.origin {
-        Origin::Blob => "Matching source board…".into(),
-        Origin::Board => "Recompiling…".into(),
-    }));
-    after_paint(move || {
-        state.busy.set(None);
-        match doc.origin {
-            Origin::Blob => state.replace_document(linked(state, &doc, &set)),
-            Origin::Board if set.vfs.exists(&doc.name) => {
-                let new = Document::from_compiled(&doc.name, set.compile(&doc.name));
-                // Same shape keeps the web; otherwise node ids may have shifted.
-                if new.tree.len() == doc.tree.len() {
-                    state.replace_document(new);
-                } else {
-                    state.set_document(new);
-                }
-            }
-            Origin::Board => {}
-        }
-    });
+    rebuild(state, false, "Updating…");
 }
 
 /// Adds every node that differs from source (and the path to it) to the web, then fits.

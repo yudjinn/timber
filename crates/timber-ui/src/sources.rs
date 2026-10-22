@@ -4,6 +4,8 @@
 use std::sync::Arc;
 
 use timber_core::bsp::{self, BoardInfo, Candidate};
+
+use crate::overlays::{OverlayMark, OverlaySpec, apply_all};
 use timber_core::dts::{self, Compiled};
 pub use timber_core::folder::folder_filter;
 use timber_core::kbuild::{self, Config, DtbTarget, Kbuild, kernel_devicetree};
@@ -279,15 +281,24 @@ impl SourceSet {
         self.kbuild.for_source(board)
     }
 
+    /// Whether every source a Makefile target needs is present (a composite's base and
+    /// overlays included).
+    pub fn buildable(&self, target: &DtbTarget) -> bool {
+        let source_of = |p: &str| match p.strip_suffix(".dtbo") {
+            Some(b) => format!("{b}.dtso"),
+            None => format!("{}.dts", p.trim_end_matches(".dtb")),
+        };
+        match &target.composite {
+            Some(parts) => parts.iter().all(|p| self.vfs.exists(&source_of(p))),
+            None => self.vfs.exists(&target.source),
+        }
+    }
+
     /// Whether the config builds this board: `Some(true/false)` with a config, else `None`.
     pub fn built(&self, board: &str) -> Option<bool> {
         self.target(board)
             .and_then(|t| t.built)
             .or(self.config.as_ref().map(|_| false))
-    }
-
-    pub fn compile(&self, path: &str) -> Compiled {
-        self.compile_as(path, false)
     }
 
     /// Compiles a board; `symbols` mirrors dtc's `-@` (for blobs that carry `__symbols__`).
@@ -325,15 +336,19 @@ pub struct SourceLink {
     /// Blob node → source node at the same path.
     pub map: Vec<Option<NodeId>>,
     pub diagnostics: Vec<Diagnostic>,
+    /// What the "applied at boot" overlays set on the source board.
+    pub marks: Vec<OverlayMark>,
 }
 
 /// Finds and compiles the source board for `blob`. `forced` is a board path chosen by the
 /// user, which skips matching.
+/// `boot` overlays are applied to the source board before comparing (D-027).
 pub fn annotate(
     blob: &Tree,
     blob_name: &str,
     set: &SourceSet,
     forced: Option<&str>,
+    boot: &[OverlaySpec],
 ) -> Option<SourceLink> {
     let candidates: Vec<Candidate> = match forced {
         Some(path) => {
@@ -369,15 +384,24 @@ pub fn annotate(
         }
     };
     // A blob built with dtc -@ keeps labelled /omit-if-no-ref/ nodes; compile the same way.
-    let symbols = blob.child_by_name(Tree::ROOT, "__symbols__").is_some();
+    // Overlays need the base's __symbols__ too.
+    let symbols = blob.child_by_name(Tree::ROOT, "__symbols__").is_some() || !boot.is_empty();
     let (candidate, compiled, confidence) = candidates
         .into_iter()
         .map(|c| {
-            let compiled = set.compile_as(&set.boards[c.index].path, symbols);
+            let mut compiled = set.compile_as(&set.boards[c.index].path, symbols);
+            let mut marks = Vec::new();
+            if !boot.is_empty() {
+                let overlaid = apply_all(std::mem::take(&mut compiled.tree), set, boot);
+                compiled.tree = overlaid.tree;
+                compiled.diagnostics.extend(overlaid.diagnostics);
+                marks = overlaid.marks;
+            }
             let score = bsp::content_score(blob, &compiled.tree);
-            (c, compiled, score)
+            (c, (compiled, marks), score)
         })
         .max_by(|a, b| a.2.total_cmp(&b.2))?;
+    let (compiled, marks) = compiled;
     let map = bsp::map_by_path(blob, &compiled.tree);
     Some(SourceLink {
         board: set.boards[candidate.index].path.clone(),
@@ -388,6 +412,7 @@ pub fn annotate(
         tree: compiled.tree,
         source_map: compiled.source_map,
         diagnostics: compiled.diagnostics,
+        marks,
     })
 }
 
@@ -440,13 +465,13 @@ mod tests {
 
         // A blob built with REV=2 and patched at boot.
         let set = set.with_defines(parse_defines("REV=2"));
-        let mut blob = set.compile("bsp/acme-gw.dts").tree;
+        let mut blob = set.compile_as("bsp/acme-gw.dts", false).tree;
         assert!(blob.prop(Tree::ROOT, "rev2").is_some());
         let uart = blob.find("/soc/serial").unwrap();
         blob.node_mut(uart)
             .set_prop("status", b"disabled\0".to_vec());
 
-        let link = annotate(&blob, "acme-gw.dtb", &set, None).expect("matched");
+        let link = annotate(&blob, "acme-gw.dtb", &set, None, &[]).expect("matched");
         assert_eq!(link.board, "bsp/acme-gw.dts");
         assert!(link.why.starts_with("file name"));
         assert!(link.confidence > 0.8 && link.confidence < 1.0);

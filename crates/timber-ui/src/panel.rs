@@ -94,6 +94,58 @@ fn loc_link(
     }
 }
 
+/// What overlays did to a node (`prop: None`) or one of its properties, as source links:
+/// overlays on the tree shown, and the "applied at boot" ones on a DTB's source board.
+fn overlay_links(state: AppState, doc: &Document, id: NodeId, prop: Option<&str>) -> Vec<AnyView> {
+    let source_node = doc
+        .link
+        .as_ref()
+        .and_then(|l| l.map.get(id).copied().flatten());
+    let boot = doc
+        .link
+        .iter()
+        .flat_map(|l| &l.marks)
+        .filter(|m| Some(m.node) == source_node)
+        .map(|m| (m, true));
+    let shown = doc
+        .overlay_marks
+        .iter()
+        .filter(|m| m.node == id)
+        .map(|m| (m, false));
+    let mut seen: Vec<(String, bool)> = Vec::new();
+    shown
+        .chain(boot)
+        .filter(|(m, _)| m.prop.as_deref() == prop)
+        // One link per overlay (a node can be merged into by several fragments).
+        .filter(|(m, boot)| {
+            let key = (m.overlay.clone(), *boot);
+            !seen.contains(&key) && {
+                seen.push(key);
+                true
+            }
+        })
+        .map(|(m, boot)| {
+            let verb = match (prop, m.created) {
+                (Some(_), _) => "set by",
+                (None, true) => "added by",
+                (None, false) => "changed by",
+            };
+            let at = if boot { " (at boot)" } else { "" };
+            let line = m.loc.as_ref().map(|l| format!(":{}", l.line)).unwrap_or_default();
+            let text = format!("{verb} {}{line}{at}", m.overlay);
+            match m.loc.clone() {
+                Some(loc) => view! {
+                    <button class="src-link-btn" title=format!("{}:{}", loc.path, loc.line) on:click=move |_| state.open_source(loc.clone())>
+                        {text}
+                    </button>
+                }
+                .into_any(),
+                None => view! { <span class="src-link-btn plain">{text}</span> }.into_any(),
+            }
+        })
+        .collect()
+}
+
 /// A banner explaining where source information is (or isn't) coming from.
 fn source_notice(state: AppState, doc: &Document, id: NodeId) -> Option<AnyView> {
     let backend = use_context::<BackendHandle>();
@@ -205,10 +257,12 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                     .collect_view()
                     .into_any()
             };
-            let sources = doc
+            let mut links: Vec<AnyView> = doc
                 .source_for(id)
-                .map(|(sm, sid)| sm.prop(sid, &p.name).iter().map(|l| loc_link(state, sm, l)).collect::<Vec<_>>())
-                .filter(|v| !v.is_empty());
+                .map(|(sm, sid)| sm.prop(sid, &p.name).iter().map(|l| loc_link(state, sm, l).into_any()).collect())
+                .unwrap_or_default();
+            links.extend(overlay_links(state, &doc, id, Some(&p.name)));
+            let sources = (!links.is_empty()).then_some(links);
             let differs = comparison.as_ref().is_some_and(|c| c.differs.contains(&p.name));
             let only_here = comparison.as_ref().is_some_and(|c| c.only_a.contains(&p.name));
             let source_value = differs
@@ -250,12 +304,27 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
         .collect_view();
     let has_refs = !doc.referenced_by[id].is_empty();
 
-    let node_sources = doc.source_for(id).map(|(sm, sid)| {
-        sm.node(sid)
-            .iter()
-            .map(|l| view! { <li>{loc_link(state, sm, l)}</li> })
+    let mut node_links: Vec<AnyView> = doc
+        .source_for(id)
+        .map(|(sm, sid)| {
+            sm.node(sid)
+                .iter()
+                .map(|l| loc_link(state, sm, l).into_any())
+                .collect()
+        })
+        .unwrap_or_default();
+    node_links.extend(overlay_links(state, &doc, id, None));
+    let node_sources = (!node_links.is_empty()).then(|| {
+        node_links
+            .into_iter()
+            .map(|v| view! { <li>{v}</li> })
             .collect_view()
     });
+    let added_by = doc
+        .overlay_marks
+        .iter()
+        .find(|m| m.node == id && m.created)
+        .map(|m| m.overlay.clone());
 
     // Properties the source sets that the DTB doesn't have.
     let only_in_source = link.zip(source_node).zip(comparison.as_ref()).and_then(|((l, sid), c)| {
@@ -293,6 +362,7 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                         {kind.label()}
                         {status_chip(&doc, id)}
                         {diff_chip(&doc, id)}
+                        {added_by.map(|o| view! { <span class="chip label from-source">{format!("added by {o}")}</span> })}
                     </div>
                 </div>
             </header>
