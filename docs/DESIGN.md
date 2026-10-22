@@ -101,8 +101,8 @@ trait Backend {
 | Feature | Desktop | Web |
 |---|---|---|
 | Open `.dtb` / `.dts` files | ✅ | ✅ |
-| Add source folders | ✅ native dialog | ✅ all browsers (`<input webkitdirectory>`; only source files are read) ([D-017](DECISIONS.md)) |
-| Recompile when the folder changes | ✅ file watcher | ⚠️ re-add the folder |
+| Add source folders | ✅ native dialog | ✅ Chrome/Edge: read in place with Reload (directory access API); Firefox/Safari: folder picker. Only source files are read ([D-017](DECISIONS.md), [D-022](DECISIONS.md)) |
+| Recompile when the folder changes | ✅ file watcher | ⚠️ Chrome/Edge: Reload button; others: re-add the folder |
 | Export PNG / SVG | ✅ | ✅ |
 | Apply overlays | ✅ | ✅ |
 | Board detection from config | ✅ | ✅ (config file upload) |

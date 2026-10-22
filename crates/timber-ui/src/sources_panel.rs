@@ -4,9 +4,10 @@
 use leptos::prelude::*;
 
 use crate::actions::{
-    add_folder, choose_board_for_blob, open_files, remove_source, set_defines, show_board,
+    add_folder, choose_board_for_blob, open_files, reload_folder, remove_source, set_defines,
+    show_board,
 };
-use crate::backend::BackendHandle;
+use crate::backend::{BackendHandle, FolderAccess};
 use crate::doc::Origin;
 use crate::sources::{EntryKind, format_defines};
 use crate::state::AppState;
@@ -99,6 +100,13 @@ pub fn SourcesPanel() -> impl IntoView {
     let b_files = backend.clone();
     let b_folder = backend.clone();
     let b_files2 = backend.clone();
+    let b_reload = StoredValue::new(backend.clone());
+    let privacy = match backend.0.folder_access() {
+        FolderAccess::Direct => "Folders are read in place on this computer; nothing is uploaded.",
+        FolderAccess::Picker => {
+            "Your browser's prompt says \u{201c}upload\u{201d}, but nothing leaves this computer: files are read inside this page. Chrome or Edge read folders in place instead, and can reload them."
+        }
+    };
 
     let shown = move || {
         state.doc.with(|d| match d {
@@ -124,7 +132,7 @@ pub fn SourcesPanel() -> impl IntoView {
         if set.is_empty() {
             return view! {
                 <p class="muted small">
-                    "Add the kernel and BSP folders your boards are built from. Only .dts, .dtsi and .h files are read; in a kernel tree, only the dts and dt-bindings directories."
+                    "Add the kernel and BSP folders your boards are built from. Only .dts, .dtsi and .h files are read; in a kernel tree, only the dts, dt-bindings, and uapi directories."
                 </p>
                 <p class="muted small">
                     "Yocto: add " <code>"tmp/work-shared/<MACHINE>/kernel-source"</code>
@@ -137,21 +145,35 @@ pub fn SourcesPanel() -> impl IntoView {
             .iter()
             .map(|e| {
                 let name = e.name.clone();
+                let reload_name = e.name.clone();
+                let reloadable = state.folder_handles.with_value(|h| h.contains_key(&e.name));
                 let mut parts = Vec::new();
                 parts.push(match (e.kind, e.arches.is_empty()) {
                     (EntryKind::Files, _) => "loose files".to_string(),
                     (EntryKind::Folder, false) => format!("kernel tree · {}", e.arches.join(", ")),
                     (EntryKind::Folder, true) => "folder".to_string(),
                 });
-                parts.push(format!("{} files", e.files));
-                parts.push(format!("{} boards", e.boards));
+                let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+                parts.push(plural(e.files, "file"));
+                parts.push(plural(e.boards, "board"));
                 view! {
                     <li class="source-entry">
                         <div>
                             <div class="mono">{format!("{}/", e.name)}</div>
                             <div class="muted small">{parts.join(" · ")}</div>
                         </div>
-                        <button class="small" on:click=move |_| remove_source(state, &name)>"Remove"</button>
+                        <div class="row tight">
+                            {reloadable.then(|| view! {
+                                <button
+                                    class="small"
+                                    title="Re-read the folder to pick up edits"
+                                    on:click=move |_| reload_folder(state, b_reload.get_value(), reload_name.clone())
+                                >
+                                    "Reload"
+                                </button>
+                            })}
+                            <button class="small" on:click=move |_| remove_source(state, &name)>"Remove"</button>
+                        </div>
                     </li>
                 }
             })
@@ -239,6 +261,7 @@ pub fn SourcesPanel() -> impl IntoView {
                                 move |_| open_files(state, b.clone())
                             }>"Add files…"</button>
                         </div>
+                        <p class="muted small">{privacy}</p>
                     </section>
 
                     <section>

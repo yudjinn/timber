@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use leptos::prelude::*;
 
-use crate::backend::{BackendHandle, Progress};
+use crate::backend::{BackendHandle, FolderFilter, Progress};
 use crate::doc::{Document, InputFile, Origin, split_opened};
 use timber_core::vfs::Vfs;
 
@@ -75,25 +75,36 @@ pub fn add_files(state: AppState, files: Vec<InputFile>) {
     }
 }
 
+fn folder_progress(state: AppState) -> Progress {
+    Rc::new(move |done, total| {
+        let msg = if total == 0 {
+            format!("Scanning folder… {done} files")
+        } else {
+            format!("Reading {done} / {total} source files…")
+        };
+        state.busy.set(Some(msg));
+    })
+}
+
+fn source_files_only() -> FolderFilter {
+    Rc::new(|paths: &[String]| Box::new(folder_filter(paths)) as Box<dyn Fn(&str) -> bool>)
+}
+
 pub fn add_folder(state: AppState, backend: BackendHandle) {
     leptos::task::spawn_local(async move {
-        let progress: Progress = Rc::new(move |done, total| {
-            state
-                .busy
-                .set(Some(format!("Reading {done} / {total} source files…")))
-        });
-        let want =
-            Rc::new(|paths: &[String]| Box::new(folder_filter(paths)) as Box<dyn Fn(&str) -> bool>);
-        let result = backend.0.open_folder(want, progress).await;
+        let result = backend
+            .0
+            .open_folder(source_files_only(), folder_progress(state))
+            .await;
         match result {
-            Ok(Some(files)) if files.is_empty() => {
+            Ok(Some(picked)) if picked.files.is_empty() => {
                 state.busy.set(None);
                 state.notify("No .dts, .dtsi, or .h files in that folder.", true);
             }
-            Ok(Some(files)) => {
+            Ok(Some(picked)) => {
                 state.busy.set(Some("Indexing boards…".into()));
                 after_paint(move || {
-                    let files = files.into_iter().map(|f| (f.name, f.data)).collect();
+                    let files = picked.files.into_iter().map(|f| (f.name, f.data)).collect();
                     let (set, name) = state
                         .sources
                         .get_untracked()
@@ -110,6 +121,13 @@ pub fn add_folder(state: AppState, backend: BackendHandle) {
                             )
                         })
                         .unwrap_or_default();
+                    // Store the handle before the set, so the panel shows Reload right away.
+                    state.folder_handles.update_value(|h| {
+                        match picked.handle {
+                            Some(handle) => h.insert(name.clone(), handle),
+                            None => h.remove(&name),
+                        };
+                    });
                     state.sources.set(Arc::new(set));
                     state.busy.set(None);
                     state.notify(summary, false);
@@ -125,7 +143,43 @@ pub fn add_folder(state: AppState, backend: BackendHandle) {
     });
 }
 
+/// Re-reads a folder opened with direct access, picking up edits made on disk.
+pub fn reload_folder(state: AppState, backend: BackendHandle, name: String) {
+    let Some(handle) = state.folder_handles.with_value(|h| h.get(&name).cloned()) else {
+        return;
+    };
+    leptos::task::spawn_local(async move {
+        match backend
+            .0
+            .reload_folder(handle, source_files_only(), folder_progress(state))
+            .await
+        {
+            Ok(files) => {
+                state.busy.set(Some("Indexing boards…".into()));
+                after_paint(move || {
+                    let files = files.into_iter().map(|f| (f.name, f.data)).collect();
+                    let set = state
+                        .sources
+                        .get_untracked()
+                        .with_folder_reloaded(&name, files);
+                    state.sources.set(Arc::new(set));
+                    state.busy.set(None);
+                    state.notify(format!("Reloaded {name}"), false);
+                    refresh(state);
+                });
+            }
+            Err(e) => {
+                state.busy.set(None);
+                state.notify(format!("Couldn't reload {name}: {e}"), true);
+            }
+        }
+    });
+}
+
 pub fn remove_source(state: AppState, name: &str) {
+    state.folder_handles.update_value(|h| {
+        h.remove(name);
+    });
     let set = state.sources.get_untracked().without(name);
     state.sources.set(Arc::new(set));
     refresh(state);

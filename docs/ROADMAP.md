@@ -40,6 +40,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Verified in headless Chromium: kernel checkout (8,442 source files, 3,728 boards) added as a folder in ~10 s; a U-Boot-patched Rock 5B DTB auto-matched at 100% with bootargs/MAC flagged; SVG/PNG downloads rendered
 - [x] Kernel test `kernel_board_scan`: cheap scan agrees with full compiles on 3,317 / 3,326 boards
 
+## M2c · Folder access polish (D-022) — done 2026-10-22
+- [x] Directory access API in Chrome/Edge (read in place, pruned walk, Reload), `webkitdirectory` fallback
+- [x] "Nothing is uploaded" wording in the Sources panel and empty state
+- [x] Verified with a real directory handle (OPFS) in headless Chromium: pruning, 100% match, Reload picks up an edit
+
 ## M3 · Desktop shell (`timber-desktop`)
 - [ ] Tauri v2 app wrapping `timber-ui`; `TauriBackend`
 - [ ] Native open/save dialogs

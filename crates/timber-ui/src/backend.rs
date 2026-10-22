@@ -27,8 +27,31 @@ pub struct Capabilities {
     pub desktop: bool,
 }
 
+/// How folders are opened, which decides what the UI tells the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderAccess {
+    /// Read in place and can be re-read (directory access API, native dialogs).
+    Direct,
+    /// The browser's folder picker, whose prompt says "upload" even though nothing is.
+    Picker,
+}
+
+/// A way to re-read a folder that was opened earlier.
+#[derive(Clone)]
+pub enum FolderHandle {
+    /// A `FileSystemDirectoryHandle`.
+    Browser(JsValue),
+}
+
+pub struct PickedFolder {
+    /// Paths start with the folder's own name.
+    pub files: Vec<InputFile>,
+    pub handle: Option<FolderHandle>,
+}
+
 pub trait Backend: Send + Sync {
     fn capabilities(&self) -> Capabilities;
+    fn folder_access(&self) -> FolderAccess;
     /// Prompts for files. `Ok(None)` if the user cancelled.
     fn open_files(&self) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>>;
     /// Prompts for a folder and reads the files `want` accepts (it sees every path first,
@@ -38,7 +61,14 @@ pub trait Backend: Send + Sync {
         &self,
         want: FolderFilter,
         progress: Progress,
-    ) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>>;
+    ) -> LocalFuture<'_, Result<Option<PickedFolder>, String>>;
+    /// Re-reads a folder opened earlier (after edits on disk).
+    fn reload_folder(
+        &self,
+        handle: FolderHandle,
+        want: FolderFilter,
+        progress: Progress,
+    ) -> LocalFuture<'_, Result<Vec<InputFile>, String>>;
     fn save_file(
         &self,
         name: &str,
@@ -145,6 +175,149 @@ fn relative_path(file: &File) -> String {
         .unwrap_or_else(|| file.name())
 }
 
+// ---- directory access API (Chromium), called dynamically: web-sys only exposes it behind
+// its unstable-API flag ----
+
+fn get(v: &JsValue, key: &str) -> JsValue {
+    js_sys::Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+}
+
+fn method(v: &JsValue, name: &str) -> Result<js_sys::Function, String> {
+    get(v, name)
+        .dyn_into()
+        .map_err(|_| format!("{name} is not supported"))
+}
+
+fn call0(v: &JsValue, name: &str) -> Result<JsValue, String> {
+    method(v, name)?.call0(v).map_err(js_err)
+}
+
+fn call1(v: &JsValue, name: &str, arg: &JsValue) -> Result<JsValue, String> {
+    method(v, name)?.call1(v, arg).map_err(js_err)
+}
+
+async fn await_js(v: JsValue) -> Result<JsValue, String> {
+    let promise: Promise = v.dyn_into().map_err(|_| "expected a promise".to_string())?;
+    JsFuture::from(promise).await.map_err(js_err)
+}
+
+fn read_mode() -> JsValue {
+    let opts = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&opts, &"mode".into(), &"read".into());
+    opts.into()
+}
+
+pub fn has_directory_picker() -> bool {
+    web_sys::window().is_some_and(|w| get(&w, "showDirectoryPicker").is_function())
+}
+
+async fn pick_directory() -> Result<Option<JsValue>, String> {
+    let window: JsValue = web_sys::window().ok_or("no window")?.into();
+    let opts = read_mode();
+    // Lets the browser reopen the picker where the user last chose a source folder.
+    let _ = js_sys::Reflect::set(&opts, &"id".into(), &"timber-sources".into());
+    let promise = call1(&window, "showDirectoryPicker", &opts)?;
+    match JsFuture::from(
+        promise
+            .dyn_into::<Promise>()
+            .map_err(|_| "expected a promise")?,
+    )
+    .await
+    {
+        Ok(handle) => Ok(Some(handle)),
+        Err(e) if get(&e, "name").as_string().as_deref() == Some("AbortError") => Ok(None),
+        Err(e) => Err(js_err(e)),
+    }
+}
+
+/// Walks a directory handle, skipping hidden directories and, inside a kernel tree,
+/// everything dts builds don't use. Returns `(path, file handle)` with paths starting at
+/// the folder's own name.
+async fn walk_directory(
+    root: &JsValue,
+    progress: &Progress,
+) -> Result<Vec<(String, JsValue)>, String> {
+    let root_name = get(root, "name")
+        .as_string()
+        .unwrap_or_else(|| "folder".into());
+    // (directory handle, path, path relative to an enclosing kernel root)
+    let mut stack: Vec<(JsValue, String, Option<String>)> = vec![(root.clone(), root_name, None)];
+    let mut files = Vec::new();
+    while let Some((dir, path, kernel)) = stack.pop() {
+        let entries = call0(&dir, "values")?;
+        let mut children = Vec::new();
+        loop {
+            let step = await_js(call0(&entries, "next")?).await?;
+            if get(&step, "done").as_bool() == Some(true) {
+                break;
+            }
+            let entry = get(&step, "value");
+            let name = get(&entry, "name").as_string().unwrap_or_default();
+            let is_dir = get(&entry, "kind").as_string().as_deref() == Some("directory");
+            children.push((is_dir, name, entry));
+        }
+        let listing: Vec<(bool, &str)> =
+            children.iter().map(|(d, n, _)| (*d, n.as_str())).collect();
+        let kernel = kernel.or_else(|| crate::sources::is_kernel_root(&listing).then(String::new));
+        for (is_dir, name, entry) in children {
+            let child_path = format!("{path}/{name}");
+            if !is_dir {
+                files.push((child_path, entry));
+                if files.len() % 500 == 0 {
+                    progress(files.len(), 0);
+                }
+                continue;
+            }
+            if name.starts_with('.') {
+                continue;
+            }
+            let child_kernel = kernel.as_ref().map(|k| {
+                if k.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{k}/{name}")
+                }
+            });
+            if child_kernel
+                .as_deref()
+                .is_some_and(|rel| !crate::sources::kernel_dir_wanted(rel))
+            {
+                continue;
+            }
+            stack.push((entry, child_path, child_kernel));
+        }
+    }
+    Ok(files)
+}
+
+async fn read_directory(
+    dir: &JsValue,
+    want: FolderFilter,
+    progress: Progress,
+) -> Result<Vec<InputFile>, String> {
+    let handles = walk_directory(dir, &progress).await?;
+    let paths: Vec<String> = handles.iter().map(|(p, _)| p.clone()).collect();
+    let keep = want(&paths);
+    let wanted: Vec<(String, JsValue)> = handles.into_iter().filter(|(p, _)| keep(p)).collect();
+    let mut files = Vec::with_capacity(wanted.len());
+    for batch in wanted.chunks(READ_BATCH) {
+        let getters: Array = batch
+            .iter()
+            .map(|(_, h)| call0(h, "getFile"))
+            .collect::<Result<_, _>>()?;
+        let blobs: Array = await_js(Promise::all(&getters).into())
+            .await?
+            .unchecked_into();
+        files.extend(
+            batch
+                .iter()
+                .map(|(p, _)| p.clone())
+                .zip(blobs.iter().map(|b| b.unchecked_into::<File>())),
+        );
+    }
+    read_files(files, Some(progress)).await
+}
+
 impl Backend for WebBackend {
     fn capabilities(&self) -> Capabilities {
         Capabilities { desktop: false }
@@ -160,12 +333,30 @@ impl Backend for WebBackend {
         })
     }
 
+    fn folder_access(&self) -> FolderAccess {
+        if has_directory_picker() {
+            FolderAccess::Direct
+        } else {
+            FolderAccess::Picker
+        }
+    }
+
     fn open_folder(
         &self,
         want: FolderFilter,
         progress: Progress,
-    ) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>> {
+    ) -> LocalFuture<'_, Result<Option<PickedFolder>, String>> {
         Box::pin(async move {
+            if has_directory_picker() {
+                let Some(dir) = pick_directory().await? else {
+                    return Ok(None);
+                };
+                let files = read_directory(&dir, want, progress).await?;
+                return Ok(Some(PickedFolder {
+                    files,
+                    handle: Some(FolderHandle::Browser(dir)),
+                }));
+            }
             let Some(list) = pick(true).await? else {
                 return Ok(None);
             };
@@ -176,7 +367,32 @@ impl Backend for WebBackend {
             let paths: Vec<String> = all.iter().map(|(p, _)| p.clone()).collect();
             let keep = want(&paths);
             let wanted: Vec<(String, File)> = all.into_iter().filter(|(p, _)| keep(p)).collect();
-            read_files(wanted, Some(progress)).await.map(Some)
+            let files = read_files(wanted, Some(progress)).await?;
+            Ok(Some(PickedFolder {
+                files,
+                handle: None,
+            }))
+        })
+    }
+
+    fn reload_folder(
+        &self,
+        handle: FolderHandle,
+        want: FolderFilter,
+        progress: Progress,
+    ) -> LocalFuture<'_, Result<Vec<InputFile>, String>> {
+        Box::pin(async move {
+            let FolderHandle::Browser(dir) = handle;
+            // Permission lapses between sessions; ask again (this runs from a click).
+            let opts = read_mode();
+            let state = await_js(call1(&dir, "queryPermission", &opts)?).await?;
+            if state.as_string().as_deref() != Some("granted") {
+                let state = await_js(call1(&dir, "requestPermission", &opts)?).await?;
+                if state.as_string().as_deref() != Some("granted") {
+                    return Err("permission to read the folder was not granted".into());
+                }
+            }
+            read_directory(&dir, want, progress).await
         })
     }
 

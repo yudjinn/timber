@@ -68,6 +68,29 @@ fn kernel_roots<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     roots
 }
 
+/// Whether a directory inside a kernel tree (path relative to the kernel root) can hold
+/// files dts builds use, so a folder walk can skip everything else.
+pub fn kernel_dir_wanted(rel: &str) -> bool {
+    let parts: Vec<&str> = rel.split('/').collect();
+    matches!(
+        parts.as_slice(),
+        ["arch"]
+            | ["arch", _]
+            | ["arch", _, "boot"]
+            | ["arch", _, "boot", "dts", ..]
+            | ["include"]
+            | ["include", "dt-bindings", ..]
+            | ["include", "uapi", ..]
+    )
+}
+
+/// Whether a directory listing (`(is_dir, name)`) looks like the top of a kernel tree.
+pub fn is_kernel_root(children: &[(bool, &str)]) -> bool {
+    ["arch", "include", "scripts"]
+        .iter()
+        .all(|d| children.contains(&(true, d)))
+}
+
 /// Which files of a folder listing to read. In a kernel tree only the parts dts builds use;
 /// elsewhere every source-like file.
 pub fn folder_filter(paths: &[String]) -> impl Fn(&str) -> bool + 'static {
@@ -207,6 +230,19 @@ impl SourceSet {
             entries.push((name.clone(), kind));
         }
         (Self::rebuild(vfs, entries, self.defines.clone()), name)
+    }
+
+    /// Replaces the files of an existing folder entry (a reload), keeping its mount name
+    /// and position.
+    pub fn with_folder_reloaded(&self, name: &str, files: Vec<(String, Vec<u8>)>) -> Self {
+        let mut vfs = self.vfs.clone();
+        let prefix = format!("{name}/");
+        vfs.retain(|p| !p.starts_with(&prefix));
+        for (path, data) in files {
+            let rel = path.split_once('/').map_or(path.as_str(), |(_, r)| r);
+            vfs.insert(&format!("{name}/{rel}"), data);
+        }
+        Self::rebuild(vfs, self.entry_list(), self.defines.clone())
     }
 
     pub fn without(&self, name: &str) -> Self {
@@ -354,6 +390,37 @@ mod tests {
                 "bsp/board/custom.dtsi"
             ]
         );
+    }
+
+    #[test]
+    fn kernel_walk_pruning() {
+        assert!(is_kernel_root(&[
+            (true, "arch"),
+            (true, "include"),
+            (true, "scripts"),
+            (false, "Kconfig")
+        ]));
+        assert!(!is_kernel_root(&[(true, "arch"), (true, "include")]));
+        for wanted in [
+            "arch",
+            "arch/arm64",
+            "arch/arm64/boot",
+            "arch/arm64/boot/dts/rockchip",
+            "include",
+            "include/dt-bindings/gpio",
+            "include/uapi/linux",
+        ] {
+            assert!(kernel_dir_wanted(wanted), "{wanted}");
+        }
+        for skipped in [
+            "drivers",
+            "arch/arm64/kernel",
+            "include/linux",
+            "Documentation",
+            "arch/arm64/boot/install",
+        ] {
+            assert!(!kernel_dir_wanted(skipped), "{skipped}");
+        }
     }
 
     #[test]

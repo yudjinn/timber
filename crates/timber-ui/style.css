@@ -508,6 +508,7 @@ button .count {
 }
 .modal p { margin: 4px 0; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.row.tight { margin-top: 0; gap: 6px; flex-wrap: nowrap; }
 .check { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13px; }
 button.link-button { margin-left: 8px; }
 

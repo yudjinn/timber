@@ -182,3 +182,15 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:** Custom boards frequently keep an EVK's `compatible`, have variants that share one, or live in Yocto layers and vendor kernels with unusual layouts. A content score makes the custom board win over the EVK it was copied from. You said that Yocto is the common case, that BSP/vendor kernels vary wildly (so the override and folder sourcing are what matter most), and that U-Boot is the only boot-time patcher to assume for now.
 - **Validation:** The cheap scan, which follows `#include`s for variant boards, agrees with a full compile for 3,317 of 3,326 kernel arm64/arm boards. The rest declare no root `compatible` anywhere in their own sources, or build it from a macro. Content scoring covers those.
 
+## D-022 · Web build: read folders in place where the browser allows
+- **Status:** Accepted · 2026-10-22. Refines D-017.
+- **Decision:**
+  - **Chrome/Edge:** the directory access API (`showDirectoryPicker`). It's called dynamically, so `web-sys`'s unstable flag isn't needed.
+    - Folders are read in place, with a "view files" prompt.
+    - The walk skips hidden directories, and inside a kernel tree everything except `arch/*/boot/dts`, `include/dt-bindings` and `include/uapi`.
+    - Entries get a **Reload** button that re-reads them after edits, asking for permission again if it lapsed.
+  - **Firefox/Safari:** the `webkitdirectory` picker stays as the fallback.
+  - **Wording:** the Sources panel says plainly that files never leave the computer. With the fallback it explains that the browser's "upload" wording is misleading.
+- **Why:** You noticed Chrome's "Upload 8,000+ files?" prompt. Nothing is uploaded, but the wording is alarming, and the old picker listed every file in the folder. A page still can't open a path without a picker; true direct access is the desktop app (M3).
+- **Known gap:** Not verified on a real disk: whether Chromium's directory API follows **symlinked** files, such as `include/dt-bindings/input/linux-event-codes.h` → `uapi`. Boards that include those headers may report a missing include in the web build. The desktop app reads the disk directly and isn't affected.
+

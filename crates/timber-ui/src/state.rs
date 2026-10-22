@@ -5,7 +5,9 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use timber_core::{NodeId, Tree};
 
-use crate::backend::Capabilities;
+use std::collections::HashMap;
+
+use crate::backend::{Capabilities, FolderHandle};
 use crate::doc::Document;
 use crate::graph::sim::Sim;
 use crate::sources::{SharedSources, SourceSet};
@@ -243,6 +245,8 @@ pub struct AppState {
     pub choose: RwSignal<Option<Vec<String>>>,
     pub sources: RwSignal<SharedSources>,
     pub sources_open: RwSignal<bool>,
+    /// Folders that can be re-read, by mount name.
+    pub folder_handles: StoredValue<HashMap<String, FolderHandle>, LocalStorage>,
     pub help_open: RwSignal<bool>,
     /// A long-running step in progress (reading a folder, matching a board).
     pub busy: RwSignal<Option<String>>,
@@ -264,6 +268,7 @@ impl AppState {
             choose: RwSignal::new(None),
             sources: RwSignal::new(Arc::new(SourceSet::default())),
             sources_open: RwSignal::new(false),
+            folder_handles: StoredValue::new_local(HashMap::new()),
             help_open: RwSignal::new(false),
             busy: RwSignal::new(None),
             capabilities,

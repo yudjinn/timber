@@ -217,7 +217,7 @@ fn EmptyState() -> impl IntoView {
                     <p class="muted small">"Or drop files anywhere in the window. Press ? for shortcuts."</p>
                     {(!state.capabilities.desktop).then(|| view! {
                         <p class="muted small">
-                            "Everything stays in your browser; nothing is uploaded. The desktop app adds SSH to live devices and opening sources in your editor."
+                            "Files are read inside this page and never leave your computer. The desktop app adds SSH to live devices and opening sources in your editor."
                         </p>
                     })}
                 </div>
