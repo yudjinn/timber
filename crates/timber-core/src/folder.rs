@@ -55,7 +55,14 @@ pub fn is_kernel_root(children: &[(bool, &str)]) -> bool {
 pub fn folder_filter(paths: &[String]) -> impl Fn(&str) -> bool + 'static {
     let roots = kernel_roots(paths.iter().map(String::as_str));
     move |path: &str| {
-        if !is_source_file(path) || path.contains("/.git/") {
+        if path.contains("/.git/") {
+            return false;
+        }
+        // dts Makefiles say which boards a config builds.
+        if path.ends_with("/Makefile") {
+            return path.contains("/boot/dts/");
+        }
+        if !is_source_file(path) {
             return false;
         }
         match roots.iter().find(|r| path.starts_with(r.as_str())) {

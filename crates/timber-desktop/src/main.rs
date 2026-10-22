@@ -13,11 +13,14 @@ use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-/// What was passed on the command line: `timber [FILE…] [--source DIR…] [--smoke]`.
+/// What was passed on the command line:
+/// `timber [FILE…] [--source DIR…] [--config FILE] [--smoke | --smoke-watch]`.
 #[derive(Debug, Clone, Default, Serialize)]
 struct Startup {
     files: Vec<String>,
     sources: Vec<String>,
+    /// A kernel `.config`/defconfig or Yocto conf (`--config`).
+    config: Option<String>,
     /// Load the arguments, print a one-line summary, and exit (used to test the app).
     smoke: bool,
     /// Like `smoke`, but after the first summary wait for a watched folder to change and
@@ -31,6 +34,7 @@ fn parse_args() -> Startup {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--source" | "-s" => s.sources.extend(args.next()),
+            "--config" | "-c" => s.config = args.next(),
             "--smoke" => s.smoke = true,
             "--smoke-watch" => s.smoke_watch = true,
             path => s.files.push(path.to_string()),
@@ -40,6 +44,7 @@ fn parse_args() -> Startup {
         |p: String| std::fs::canonicalize(&p).map_or(p, |a| a.to_string_lossy().into_owned());
     s.files = s.files.into_iter().map(absolute).collect();
     s.sources = s.sources.into_iter().map(absolute).collect();
+    s.config = s.config.map(absolute);
     s
 }
 
@@ -52,17 +57,24 @@ fn startup(state: State<'_, Startup>) -> Startup {
 
 /// Prompts for files and returns them packed; empty if cancelled.
 #[tauri::command]
-async fn pick_files(app: AppHandle) -> Result<Response, String> {
-    let picked = app
-        .dialog()
-        .file()
-        .set_title("Open device tree files")
-        .add_filter(
-            "Device trees and sources",
-            &["dtb", "dtbo", "dts", "dtsi", "dtso", "h"],
-        )
-        .add_filter("All files", &["*"])
-        .blocking_pick_files();
+async fn pick_files(app: AppHandle, any: Option<bool>) -> Result<Response, String> {
+    let dialog = app.dialog().file();
+    // `any`: one file of any type (a kernel config or Yocto conf).
+    let picked = if any.unwrap_or(false) {
+        dialog
+            .set_title("Add a kernel config or Yocto conf")
+            .blocking_pick_file()
+            .map(|f| vec![f])
+    } else {
+        dialog
+            .set_title("Open device tree files")
+            .add_filter(
+                "Device trees and sources",
+                &["dtb", "dtbo", "dts", "dtsi", "dtso", "h"],
+            )
+            .add_filter("All files", &["*"])
+            .blocking_pick_files()
+    };
     let Some(picked) = picked else {
         return Ok(Response::new(CANCELLED.to_vec()));
     };

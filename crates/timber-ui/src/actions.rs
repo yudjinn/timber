@@ -11,7 +11,7 @@ use crate::backend::{BackendHandle, FolderFilter, FolderHandle, PickedFolder, Pr
 use crate::doc::{Document, InputFile, Origin, split_opened};
 use timber_core::vfs::Vfs;
 
-use crate::sources::{EntryKind, SourceSet, annotate, folder_filter, parse_defines};
+use crate::sources::{ConfigSource, EntryKind, SourceSet, annotate, folder_filter, parse_defines};
 use crate::state::AppState;
 
 const BOARD_CHOICE_KEY: &str = "timber.board:";
@@ -43,6 +43,9 @@ pub fn open_files(state: AppState, backend: BackendHandle) {
 /// "files" entry, and a single new board among them is shown.
 pub fn add_files(state: AppState, files: Vec<InputFile>) {
     let opened = split_opened(files);
+    if let Some(config) = opened.configs.into_iter().next() {
+        apply_config(state, &config.name, &config.data);
+    }
     if !opened.ignored.is_empty() {
         state.notify(format!("Ignored {}", opened.ignored.join(", ")), false);
     }
@@ -209,6 +212,47 @@ pub fn reload_folder(state: AppState, backend: BackendHandle, name: String) {
     });
 }
 
+pub fn add_config(state: AppState, backend: BackendHandle) {
+    leptos::task::spawn_local(async move {
+        match backend.0.open_config().await {
+            Ok(Some(file)) => {
+                apply_config(state, &file.name, &file.data);
+                refresh(state);
+            }
+            Ok(None) => {}
+            Err(e) => state.notify(format!("Couldn't open the config: {e}"), true),
+        }
+    });
+}
+
+/// Uses a kernel config or Yocto conf to decide which boards are built.
+pub fn apply_config(state: AppState, name: &str, data: &[u8]) {
+    let name = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    match ConfigSource::parse(name, &String::from_utf8_lossy(data)) {
+        Ok(config) => {
+            let set = state.sources.get_untracked().with_config(Some(config));
+            let built = set
+                .kbuild
+                .targets
+                .iter()
+                .filter(|t| t.built == Some(true))
+                .count();
+            state.sources.set(Arc::new(set));
+            state.notify(
+                format!("Using {name}: {} built", plural(built, "device tree")),
+                false,
+            );
+        }
+        Err(e) => state.notify(e, true),
+    }
+}
+
+pub fn remove_config(state: AppState) {
+    let set = state.sources.get_untracked().with_config(None);
+    state.sources.set(Arc::new(set));
+    refresh(state);
+}
+
 pub fn remove_source(state: AppState, backend: BackendHandle, name: &str) {
     state.folder_handles.update_value(|h| {
         if let Some(handle) = h.remove(name) {
@@ -298,7 +342,9 @@ pub fn show_board(state: AppState, path: &str) {
         path.rsplit('/').next().unwrap_or(&path)
     )));
     after_paint(move || {
-        let doc = Document::from_compiled(&path, set.compile(&path));
+        // Boards the Makefile builds with `dtc -@` compile the same way.
+        let symbols = set.target(&path).is_some_and(|t| t.symbols_flag);
+        let doc = Document::from_compiled(&path, set.compile_as(&path, symbols));
         state.busy.set(None);
         state.set_document(doc);
         state.sources_open.set(false);
@@ -390,6 +436,16 @@ pub fn run_startup(state: AppState, backend: BackendHandle) {
             }
         }
         state.busy.set(None);
+        if let Some(config) = &start.config {
+            match crate::tauri::read_paths(std::slice::from_ref(config)).await {
+                Ok(files) => {
+                    if let Some(f) = files.into_iter().next() {
+                        apply_config(state, &f.name, &f.data);
+                    }
+                }
+                Err(e) => state.notify(format!("Couldn't read {config}: {e}"), true),
+            }
+        }
         if !start.files.is_empty() {
             match crate::tauri::read_paths(&start.files).await {
                 Ok(files) => add_files(state, files),
@@ -428,6 +484,16 @@ async fn smoke_report(state: AppState, expect_doc: bool) {
         sources.entries.len(),
         sources.boards.len()
     );
+    if sources.config.is_some() {
+        let built: Vec<_> = sources
+            .kbuild
+            .targets
+            .iter()
+            .filter(|t| t.built == Some(true))
+            .collect();
+        let composites = built.iter().filter(|t| t.composite.is_some()).count();
+        line.push_str(&format!(" built={} composites={composites}", built.len()));
+    }
     if let Some(doc) = state.document() {
         line.push_str(&format!(
             " doc={} nodes={} errors={}",

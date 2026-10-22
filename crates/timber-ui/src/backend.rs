@@ -78,6 +78,8 @@ pub trait Backend: Send + Sync {
         mime: &str,
         data: Vec<u8>,
     ) -> LocalFuture<'_, Result<bool, String>>;
+    /// Prompts for one file of any type (a kernel config or Yocto conf). `Ok(None)` if cancelled.
+    fn open_config(&self) -> LocalFuture<'_, Result<Option<InputFile>, String>>;
     /// Starts reporting changes to a folder (desktop only).
     fn watch_folder(&self, _handle: &FolderHandle) {}
     fn unwatch_folder(&self, _handle: &FolderHandle) {}
@@ -150,7 +152,16 @@ pub async fn read_file_list(list: FileList) -> Result<Vec<InputFile>, String> {
 }
 
 /// Shows a file picker; resolves to the chosen files, or `None` if cancelled.
-async fn pick(directory: bool) -> Result<Option<FileList>, String> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    /// Device tree blobs and sources (several).
+    Sources,
+    Folder,
+    /// One file of any type (a kernel config).
+    AnyFile,
+}
+
+async fn pick(mode: Pick) -> Result<Option<FileList>, String> {
     let document = web_sys::window()
         .and_then(|w| w.document())
         .ok_or("no document")?;
@@ -159,11 +170,13 @@ async fn pick(directory: bool) -> Result<Option<FileList>, String> {
         .map_err(js_err)?
         .unchecked_into();
     input.set_type("file");
-    if directory {
-        input.set_webkitdirectory(true);
-    } else {
-        input.set_multiple(true);
-        input.set_accept(OPEN_ACCEPT);
+    match mode {
+        Pick::Folder => input.set_webkitdirectory(true),
+        Pick::Sources => {
+            input.set_multiple(true);
+            input.set_accept(OPEN_ACCEPT);
+        }
+        Pick::AnyFile => {}
     }
     let picked = Promise::new(&mut |resolve, _reject| {
         let on_change = {
@@ -344,11 +357,20 @@ impl Backend for WebBackend {
 
     fn open_files(&self) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>> {
         Box::pin(async {
-            let Some(list) = pick(false).await? else {
+            let Some(list) = pick(Pick::Sources).await? else {
                 return Ok(None);
             };
             let files = read_file_list(list).await?;
             Ok((!files.is_empty()).then_some(files))
+        })
+    }
+
+    fn open_config(&self) -> LocalFuture<'_, Result<Option<InputFile>, String>> {
+        Box::pin(async {
+            let Some(list) = pick(Pick::AnyFile).await? else {
+                return Ok(None);
+            };
+            Ok(read_file_list(list).await?.into_iter().next())
         })
     }
 
@@ -376,7 +398,7 @@ impl Backend for WebBackend {
                     handle: Some(FolderHandle::Browser(dir)),
                 }));
             }
-            let Some(list) = pick(true).await? else {
+            let Some(list) = pick(Pick::Folder).await? else {
                 return Ok(None);
             };
             let all: Vec<(String, File)> = (0..list.length())

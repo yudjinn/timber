@@ -91,7 +91,8 @@ fn load_dir(root: &Path, subdirs: &[&str]) -> MemVfs {
             } else if matches!(
                 path.extension().and_then(|e| e.to_str()),
                 Some("dts" | "dtsi" | "dtso" | "h")
-            ) {
+            ) || path.file_name().is_some_and(|n| n == "Makefile")
+            {
                 let rel = path
                     .strip_prefix(root)
                     .unwrap()
@@ -323,4 +324,79 @@ fn kernel_board_scan() {
         agree * 100 >= total * 97,
         "scan agrees on fewer than 97% of boards"
     );
+}
+
+/// The dts Makefiles evaluate: nearly every board is a target, and a config selects its arch.
+#[test]
+fn kernel_makefiles() {
+    let Ok(dir) = std::env::var("TIMBER_KERNEL_DIR") else {
+        eprintln!("skipping: set TIMBER_KERNEL_DIR to a kernel checkout");
+        return;
+    };
+    let root = PathBuf::from(dir);
+    let vfs = load_dir(&root, &["arch"]);
+    let k = timber_core::kbuild::evaluate(&vfs, None, None);
+    let sources: std::collections::HashSet<&str> =
+        k.targets.iter().map(|t| t.source.as_str()).collect();
+    let boards: Vec<&str> = timber_core::vfs::Vfs::paths(&vfs)
+        .filter(|p| p.contains("/boot/dts/") && p.ends_with(".dts"))
+        .collect();
+    let covered = boards.iter().filter(|b| sources.contains(**b)).count();
+    let composites = k.targets.iter().filter(|t| t.composite.is_some()).count();
+    let with_symbols = k.targets.iter().filter(|t| t.symbols_flag).count();
+    eprintln!(
+        "makefiles: {} targets ({composites} composites, {with_symbols} with -@), {covered}/{} boards covered, {} warnings",
+        k.targets.len(),
+        boards.len(),
+        k.warnings.len()
+    );
+    for w in k.warnings.iter().take(5) {
+        eprintln!("  {w}");
+    }
+    assert!(
+        covered * 100 >= boards.len() * 97,
+        "Makefiles reference too few boards"
+    );
+
+    let cfg = timber_core::kbuild::Config::parse("CONFIG_ARCH_ROCKCHIP=y\n");
+    let k = timber_core::kbuild::evaluate(&vfs, Some(&cfg), None);
+    let built: Vec<&str> = k
+        .targets
+        .iter()
+        .filter(|t| t.built == Some(true))
+        .map(|t| t.dtb.as_str())
+        .collect();
+    eprintln!("CONFIG_ARCH_ROCKCHIP=y builds {} targets", built.len());
+    assert!(
+        built
+            .iter()
+            .any(|d| d.ends_with("arm64/boot/dts/rockchip/rk3588-rock-5b.dtb"))
+    );
+    assert!(
+        built.iter().all(|d| d.contains("/rockchip/")),
+        "only rockchip targets"
+    );
+
+    // The arm64 defconfig doesn't name its arch; it's inferred from the Makefiles.
+    if let Ok(text) = std::fs::read_to_string(root.join("arch/arm64/configs/defconfig")) {
+        let cfg = timber_core::kbuild::Config::parse(&text);
+        let k = timber_core::kbuild::evaluate(&vfs, Some(&cfg), None);
+        let built: Vec<&str> = k
+            .targets
+            .iter()
+            .filter(|t| t.built == Some(true))
+            .map(|t| t.dtb.as_str())
+            .collect();
+        eprintln!(
+            "arm64 defconfig: arch {:?}, builds {} targets",
+            k.arch,
+            built.len()
+        );
+        assert_eq!(k.arch, Some(("arm64".to_string(), true)));
+        assert!(
+            built
+                .iter()
+                .all(|d| d.starts_with("arch/arm64/") || d.contains("/arch/arm64/"))
+        );
+    }
 }

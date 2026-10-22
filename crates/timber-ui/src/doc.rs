@@ -248,6 +248,8 @@ impl DiffInfo {
 pub struct Opened {
     pub blobs: Vec<InputFile>,
     pub sources: Vec<InputFile>,
+    /// Kernel configs and Yocto confs.
+    pub configs: Vec<InputFile>,
     pub ignored: Vec<String>,
 }
 
@@ -255,6 +257,7 @@ pub fn split_opened(files: Vec<InputFile>) -> Opened {
     let mut out = Opened {
         blobs: Vec::new(),
         sources: Vec::new(),
+        configs: Vec::new(),
         ignored: Vec::new(),
     };
     for f in files {
@@ -265,6 +268,8 @@ pub fn split_opened(files: Vec<InputFile>) -> Opened {
             Some("dts" | "dtsi" | "dtso" | "h")
         ) {
             out.sources.push(f);
+        } else if crate::sources::is_config_file(&f.name) {
+            out.configs.push(f);
         } else {
             out.ignored.push(f.name);
         }

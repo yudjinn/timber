@@ -29,7 +29,7 @@ cargo tauri dev          # runs trunk serve and opens the app with live reload
 cargo tauri build        # release bundles (AppImage/deb, msi, dmg) in target/release/bundle
 
 # The binary takes files and source folders:
-timber board.dtb --source ~/src/linux --source ~/bsp
+timber board.dtb --source ~/src/linux --source ~/bsp --config ~/src/linux/.config
 ```
 
 ## Development

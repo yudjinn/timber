@@ -68,8 +68,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## M4 · BSP folders
 - [x] Folder indexing (desktop native, M3; web, M2b/M2c)
-- [ ] Config input: `.config` / defconfig / Yocto `KERNEL_DEVICETREE`
-- [ ] dts Makefile evaluation → board picker (active first)
+- [x] Config input: `.config` / defconfig / Yocto `KERNEL_DEVICETREE` (panel, drop, `--config`); arch from symbols or inferred from Makefiles
+- [x] dts Makefile evaluation (`dtb-$(CONFIG_…)`, subdirs, composites, `DTC_FLAGS -@`, variables, conditionals) → board picker (built first, chips); built boards win matching ties; kernel test `kernel_makefiles`
 - [x] Source viewer drawer (syntax highlight, block highlight, include/label links, history); open in editor via template (D-026); Settings dialog; clickable source locations in the node panel and compiler messages
 - [x] Folder watcher + recompile (desktop, M3); Reload button (web, M2c)
 - [ ] Overlay application (libfdt semantics) + `*-dtbs` composites; two overlay lists (D-009, D-027)

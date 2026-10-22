@@ -2,18 +2,29 @@
 //! source board a DTB is matched to (DESIGN §7a).
 
 use leptos::prelude::*;
+use timber_core::vfs::Vfs;
 
 use crate::actions::{
-    add_folder, choose_board_for_blob, open_files, reload_folder, remove_source, set_defines,
-    show_board,
+    add_config, add_folder, choose_board_for_blob, open_files, reload_folder, remove_config,
+    remove_source, set_defines, show_board,
 };
 use crate::backend::{BackendHandle, FolderAccess};
 use crate::doc::Origin;
-use crate::sources::{EntryKind, format_defines};
+use crate::sources::{ConfigSource, EntryKind, format_defines};
 use crate::state::AppState;
 
 /// Boards listed at once in a picker.
 const PICKER_LIMIT: usize = 60;
+
+#[derive(Debug, Clone, PartialEq)]
+struct PickerRow {
+    path: String,
+    detail: String,
+    /// Whether the config builds it (`None` without a config).
+    built: Option<bool>,
+    /// The `CONFIG_` symbols its Makefile line depends on.
+    gates: Vec<String>,
+}
 
 #[component]
 fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> impl IntoView {
@@ -22,15 +33,19 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
     let results = Memo::new(move |_| {
         let q = query.get().to_lowercase();
         let terms: Vec<&str> = q.split_whitespace().collect();
-        if terms.is_empty() {
-            return Vec::new();
-        }
         state.sources.with(|set| {
-            let mut hits: Vec<(String, String)> = set
+            // With a config and no query, list the boards it builds.
+            if terms.is_empty() && set.config.is_none() {
+                return Vec::new();
+            }
+            let mut hits: Vec<PickerRow> = set
                 .boards
                 .iter()
                 .filter(|b| !b.overlay)
                 .filter(|b| {
+                    if terms.is_empty() {
+                        return set.built(&b.path) == Some(true);
+                    }
                     let hay = format!(
                         "{} {} {}",
                         b.path,
@@ -40,18 +55,24 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
                     .to_lowercase();
                     terms.iter().all(|t| hay.contains(t))
                 })
-                .map(|b| {
-                    (
-                        b.path.clone(),
-                        b.model.clone().unwrap_or_else(|| b.compatible.join(", ")),
-                    )
+                .map(|b| PickerRow {
+                    path: b.path.clone(),
+                    detail: b.model.clone().unwrap_or_else(|| b.compatible.join(", ")),
+                    built: set.built(&b.path),
+                    gates: set
+                        .target(&b.path)
+                        .map(|t| t.symbols.clone())
+                        .unwrap_or_default(),
                 })
                 .collect();
-            hits.sort();
+            hits.sort_by(|a, b| {
+                (a.built != Some(true), &a.path).cmp(&(b.built != Some(true), &b.path))
+            });
             hits.truncate(PICKER_LIMIT);
             hits
         })
     });
+    let has_config = move || state.sources.with(|s| s.config.is_some());
     view! {
         <div class="board-picker">
             <input
@@ -61,24 +82,31 @@ fn BoardPicker(#[prop(into)] on_pick: Callback<String>, placeholder: String) -> 
                 prop:value=move || query.get()
                 on:input=move |ev| query.set(event_target_value(&ev))
             />
-            <Show when=move || !query.with(String::is_empty)>
+            <Show when=move || !query.with(String::is_empty) || has_config()>
                 <ul class="picker-list">
                     {move || {
                         let list = results.get();
                         if list.is_empty() {
-                            return view! { <li class="popup-empty">"No boards match"</li> }.into_any();
+                            let msg = if query.with(String::is_empty) { "The config builds none of these boards" } else { "No boards match" };
+                            return view! { <li class="popup-empty">{msg}</li> }.into_any();
                         }
                         list.into_iter()
-                            .map(|(path, detail)| {
-                                let p = path.clone();
+                            .map(|row| {
+                                let p = row.path.clone();
+                                let chip = match row.built {
+                                    Some(true) => Some(view! { <span class="chip ok">"built"</span> }.into_any()),
+                                    Some(false) => Some(view! { <span class="chip">"not built"</span> }.into_any()),
+                                    None => (!row.gates.is_empty())
+                                        .then(|| view! { <span class="chip mono">{row.gates.join(" ")}</span> }.into_any()),
+                                };
                                 view! {
                                     <li>
                                         <button class="picker-row" on:click=move |_| {
                                             query.set(String::new());
                                             on_pick.run(p.clone());
                                         }>
-                                            <span class="mono">{path}</span>
-                                            <span class="muted small">{detail}</span>
+                                            <span class="mono">{row.path.clone()}{chip}</span>
+                                            <span class="muted small">{row.detail.clone()}</span>
                                         </button>
                                     </li>
                                 }
@@ -100,6 +128,7 @@ pub fn SourcesPanel() -> impl IntoView {
     let b_files = backend.clone();
     let b_folder = backend.clone();
     let b_files2 = backend.clone();
+    let b_config = backend.clone();
     let b_reload = StoredValue::new(backend.clone());
     let privacy = match backend.0.folder_access() {
         FolderAccess::Direct => "Folders are read in place on this computer; nothing is uploaded.",
@@ -282,6 +311,80 @@ pub fn SourcesPanel() -> impl IntoView {
                             }>"Add files…"</button>
                         </div>
                         <p class="muted small">{privacy}</p>
+                    </section>
+
+                    <section>
+                        <h4>"Kernel config"</h4>
+                        {move || {
+                            let set = state.sources.get();
+                            let built = set.kbuild.targets.iter().filter(|t| t.built == Some(true)).count();
+                            // Built targets whose sources are actually in the folders added.
+                            let here = set
+                                .kbuild
+                                .targets
+                                .iter()
+                                .filter(|t| t.built == Some(true) && set.vfs.exists(&t.source))
+                                .count();
+                            match &set.config {
+                                None => view! {
+                                    <p class="muted small">
+                                        "Add a .config, defconfig, or Yocto local.conf / machine .conf to see which boards your build produces."
+                                    </p>
+                                }
+                                .into_any(),
+                                Some(ConfigSource::Kernel { name, config }) => {
+                                    let partial = config.partial;
+                                    view! {
+                                        <p>
+                                            <span class="mono">{name.clone()}</span>
+                                            <span class="muted">{format!(
+                                                    " · {}{} symbols · {built} device trees built · {here} in these sources",
+                                                    set.kbuild
+                                                        .arch
+                                                        .as_ref()
+                                                        .map(|(a, inferred)| format!("{a}{} · ", if *inferred { " (inferred)" } else { "" }))
+                                                        .unwrap_or_default(),
+                                                    config.len()
+                                                )}</span>
+                                        </p>
+                                        {partial.then(|| view! {
+                                            <p class="notice warn small">
+                                                "This looks like a defconfig: symbols left at their defaults aren't listed, so some built boards may show as not built."
+                                            </p>
+                                        })}
+                                    }
+                                    .into_any()
+                                }
+                                Some(ConfigSource::Yocto { name, list }) => {
+                                    let missing: Vec<String> = list
+                                        .iter()
+                                        .filter(|y| !set.kbuild.targets.iter().any(|t| t.built == Some(true) && t.dtb.ends_with(y.as_str())))
+                                        .cloned()
+                                        .collect();
+                                    view! {
+                                        <p>
+                                            <span class="mono">{name.clone()}</span>
+                                            <span class="muted">{format!(" · KERNEL_DEVICETREE lists {} · {here} found in the sources", list.len())}</span>
+                                        </p>
+                                        {(!missing.is_empty()).then(|| view! {
+                                            <p class="notice warn small">{format!("Not found in the sources: {}", missing.join(", "))}</p>
+                                        })}
+                                    }
+                                    .into_any()
+                                }
+                            }
+                        }}
+                        <div class="row">
+                            <button on:click={
+                                let b = b_config.clone();
+                                move |_| add_config(state, b.clone())
+                            }>
+                                {move || if state.sources.with(|s| s.config.is_some()) { "Replace config…" } else { "Add config…" }}
+                            </button>
+                            <Show when=move || state.sources.with(|s| s.config.is_some())>
+                                <button on:click=move |_| remove_config(state)>"Remove"</button>
+                            </Show>
+                        </div>
                     </section>
 
                     <section>

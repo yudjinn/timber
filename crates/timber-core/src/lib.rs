@@ -5,6 +5,7 @@ pub mod dtb;
 pub mod dts;
 pub mod folder;
 pub mod format;
+pub mod kbuild;
 mod lex;
 mod preprocess;
 pub mod source_map;

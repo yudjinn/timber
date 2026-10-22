@@ -269,17 +269,34 @@ A missing include is a clear error that names the file and the line that include
 
 ### 5.3 BSP folders and the "active" layout
 
-1. **Index the folder:** find all `*.dts`, `*.dtsi`, `*.h` under `arch/*/boot/dts/**` and `include/dt-bindings/**`. For non-kernel layouts, find every `*.dts*` in the tree.
-2. **Load a config** from any of:
-   - a `.config` file, or a `defconfig`. Caveat: a defconfig leaves out symbols set to their defaults. The UI warns that results may be incomplete; `ARCH_*` and `CONFIG_<board>` symbols are usually set explicitly anyway.
-   - `/proc/config.gz` from the device (desktop, over SSH).
-   - a Yocto `KERNEL_DEVICETREE = "…"` line, pasted or read from a `local.conf`/machine `.conf`.
-3. **Evaluate the dts Makefiles:**
-   - the `dtb-$(CONFIG_X) += a.dtb b.dtb` forms, plus `dtb-y`, `subdir-y` / `subdir-$(CONFIG_X)`, and `+=` / `:=` variable references
-   - `ifeq` / `ifdef` blocks are evaluated where they only involve `CONFIG_*`; anything else counts as enabled, with a warning
-   - `*-dtbs := base.dtb overlay.dtbo` composites are listed as boards and built by applying the overlays to the base (§5.4)
-4. **Board picker:** active boards are listed first, then all other `.dts` files under "Inactive / unknown".
-5. **Auto-match:** if an SSH session is open, the board whose root `compatible` (then `model`) matches the live device is pre-selected.
+1. **Folders:** kernel trees are read pruned to `arch/*/boot/dts/**` (dts sources *and* Makefiles), `include/dt-bindings/**` and `include/uapi/**`. The rules are in `timber_core::folder`, shared by the web and desktop walks.
+2. **Config** (Sources panel → Kernel config; a file dropped on the window; or `--config` on the desktop command line):
+   - a **`.config`**: Kconfig output, recognised by its "Automatically generated file" header
+   - a **defconfig**: symbols left at their defaults aren't listed, so the panel warns that some built boards may show as not built
+   - a **Yocto file** setting `KERNEL_DEVICETREE` (`local.conf`, a machine `.conf`, or `bitbake -e` output). It handles `=`, `?=`, `??=`, `+=`, `:append`/`:prepend` and line continuations, and names the built targets directly.
+3. **Makefile evaluation** (`timber_core::kbuild`), covering the make subset dts Makefiles use:
+   - `dtb-$(CONFIG_X)` and `${…}` lists, and `dtb-y`
+   - `subdir-y` / `subdir-$(CONFIG_X)`; a parent's gate applies to the whole subdirectory
+   - composites: `name-dtbs := base.dtb x.dtbo …`
+   - `DTC_FLAGS` and `DTC_FLAGS_<name>` containing `-@`, so those boards compile in `-@` mode when shown
+   - simple variables, and `ifeq`/`ifneq`/`ifdef`/`ifndef`/`else`/`endif`; without a config every branch counts as possible
+   - unsupported functions and `include` are skipped, with a warning
+
+   **The config's architecture:**
+   - A config only builds its own architecture's device trees. arm and arm64 share most `CONFIG_ARCH_*` symbols.
+   - The architecture comes from the arch symbol (`CONFIG_ARM64`, …) or arch-only symbols.
+   - Failing that, it's **inferred**: the architecture whose Makefiles use the most of the config's enabled symbols. The current arm64 defconfig names no arch symbol at all.
+   - The panel marks an inferred architecture as such. A tie means no filtering.
+4. **Board picker:**
+   - With a config: "built" boards come first, and with an empty query the picker lists them.
+   - Each row has a chip: **built** / **not built**, or, without a config, the `CONFIG_` symbols that gate it.
+5. **DTB matching:** among equally good candidates, boards the config builds win.
+
+**Measured on the kernel:**
+- 4,042 Makefile targets: 478 composites, 271 built with `-@`
+- 3,389 of 3,392 board `.dts` files are referenced by some Makefile
+- `CONFIG_ARCH_ROCKCHIP=y` alone builds the 308 Rockchip targets
+- the arm64 defconfig is inferred as arm64 and builds 1,913
 
 ### 5.4 Applying overlays ([D-009](DECISIONS.md))
 

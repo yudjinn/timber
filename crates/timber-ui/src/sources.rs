@@ -6,6 +6,7 @@ use std::sync::Arc;
 use timber_core::bsp::{self, BoardInfo, Candidate};
 use timber_core::dts::{self, Compiled};
 pub use timber_core::folder::folder_filter;
+use timber_core::kbuild::{self, Config, DtbTarget, Kbuild, kernel_devicetree};
 use timber_core::source_map::SourceMap;
 use timber_core::vfs::{IncludeResolver, MemVfs, Vfs};
 use timber_core::{Diagnostic, NodeId, Tree};
@@ -38,6 +39,55 @@ pub struct SourceSet {
     pub boards: Vec<BoardInfo>,
     /// `NAME=VALUE` preprocessor defines applied to every compile.
     pub defines: Vec<(String, String)>,
+    /// A kernel config or Yocto `KERNEL_DEVICETREE`, deciding which boards are built.
+    pub config: Option<ConfigSource>,
+    /// What the dts Makefiles build (evaluated against `config` when there is one).
+    pub kbuild: Kbuild,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigSource {
+    Kernel { name: String, config: Config },
+    Yocto { name: String, list: Vec<String> },
+}
+
+impl ConfigSource {
+    /// A `.config`/defconfig, or a Yocto file that sets `KERNEL_DEVICETREE`.
+    pub fn parse(name: &str, text: &str) -> Result<Self, String> {
+        if let Some(list) = kernel_devicetree(text) {
+            return Ok(ConfigSource::Yocto {
+                name: name.to_string(),
+                list,
+            });
+        }
+        let config = Config::parse(text);
+        if config.is_empty() {
+            return Err(format!(
+                "{name} has no CONFIG_ symbols or KERNEL_DEVICETREE"
+            ));
+        }
+        Ok(ConfigSource::Kernel {
+            name: name.to_string(),
+            config,
+        })
+    }
+}
+
+/// Recognises kernel config and Yocto conf files among opened files.
+pub fn is_config_file(name: &str) -> bool {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    base == ".config"
+        || base.ends_with("defconfig")
+        || base.starts_with("config-")
+        || base.ends_with(".conf")
+}
+
+fn evaluate_kbuild(vfs: &MemVfs, config: Option<&ConfigSource>) -> Kbuild {
+    match config {
+        Some(ConfigSource::Kernel { config, .. }) => kbuild::evaluate(vfs, Some(config), None),
+        Some(ConfigSource::Yocto { list, .. }) => kbuild::evaluate(vfs, None, Some(list)),
+        None => kbuild::evaluate(vfs, None, None),
+    }
 }
 
 fn is_board(path: &str) -> bool {
@@ -80,7 +130,9 @@ impl SourceSet {
         vfs: MemVfs,
         entries: Vec<(String, EntryKind)>,
         defines: Vec<(String, String)>,
+        config: Option<ConfigSource>,
     ) -> Self {
+        let kbuild = evaluate_kbuild(&vfs, config.as_ref());
         let resolver = IncludeResolver::new(&vfs);
         let boards: Vec<BoardInfo> = vfs
             .paths()
@@ -116,6 +168,8 @@ impl SourceSet {
             vfs,
             boards,
             defines,
+            config,
+            kbuild,
         }
     }
 
@@ -162,7 +216,10 @@ impl SourceSet {
         if !entries.iter().any(|(e, _)| *e == name) {
             entries.push((name.clone(), kind));
         }
-        (Self::rebuild(vfs, entries, self.defines.clone()), name)
+        (
+            Self::rebuild(vfs, entries, self.defines.clone(), self.config.clone()),
+            name,
+        )
     }
 
     /// Replaces the files of an existing folder entry (a reload), keeping its mount name
@@ -175,7 +232,12 @@ impl SourceSet {
             let rel = path.split_once('/').map_or(path.as_str(), |(_, r)| r);
             vfs.insert(&format!("{name}/{rel}"), data);
         }
-        Self::rebuild(vfs, self.entry_list(), self.defines.clone())
+        Self::rebuild(
+            vfs,
+            self.entry_list(),
+            self.defines.clone(),
+            self.config.clone(),
+        )
     }
 
     pub fn without(&self, name: &str) -> Self {
@@ -187,7 +249,7 @@ impl SourceSet {
             .into_iter()
             .filter(|(e, _)| e != name)
             .collect();
-        Self::rebuild(vfs, entries, self.defines.clone())
+        Self::rebuild(vfs, entries, self.defines.clone(), self.config.clone())
     }
 
     pub fn with_defines(&self, defines: Vec<(String, String)>) -> Self {
@@ -196,7 +258,32 @@ impl SourceSet {
             vfs: self.vfs.clone(),
             boards: self.boards.clone(),
             defines,
+            config: self.config.clone(),
+            kbuild: self.kbuild.clone(),
         }
+    }
+
+    pub fn with_config(&self, config: Option<ConfigSource>) -> Self {
+        SourceSet {
+            entries: self.entries.clone(),
+            vfs: self.vfs.clone(),
+            boards: self.boards.clone(),
+            defines: self.defines.clone(),
+            kbuild: evaluate_kbuild(&self.vfs, config.as_ref()),
+            config,
+        }
+    }
+
+    /// The Makefile target that builds this board source, if any.
+    pub fn target(&self, board: &str) -> Option<&DtbTarget> {
+        self.kbuild.for_source(board)
+    }
+
+    /// Whether the config builds this board: `Some(true/false)` with a config, else `None`.
+    pub fn built(&self, board: &str) -> Option<bool> {
+        self.target(board)
+            .and_then(|t| t.built)
+            .or(self.config.as_ref().map(|_| false))
     }
 
     pub fn compile(&self, path: &str) -> Compiled {
@@ -261,6 +348,14 @@ pub fn annotate(
             let compatible = blob.prop_strings(Tree::ROOT, "compatible");
             let model = blob.prop_str(Tree::ROOT, "model");
             let mut list = bsp::shortlist(&set.boards, blob_name, &compatible, model);
+            // Among equally good matches, prefer boards the config builds.
+            list.sort_by_key(|c| {
+                (
+                    !c.file_name,
+                    std::cmp::Reverse(c.reason),
+                    set.built(&set.boards[c.index].path) != Some(true),
+                )
+            });
             // A file-name match that also agrees on compatible needs no runner-up.
             let certain = list.first().is_some_and(|c| {
                 c.file_name

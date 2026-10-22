@@ -98,8 +98,8 @@ impl Backend for TauriBackend {
 
     fn open_files(&self) -> LocalFuture<'_, Result<Option<Vec<InputFile>>, String>> {
         Box::pin(async {
-            Ok(unpack(invoke("pick_files", object(&[])).await?)?
-                .map(|(_, files)| with_disk_paths(files)))
+            let picked = invoke("pick_files", object(&[("any", JsValue::FALSE)])).await?;
+            Ok(unpack(picked)?.map(|(_, files)| with_disk_paths(files)))
         })
     }
 
@@ -158,6 +158,13 @@ impl Backend for TauriBackend {
         })
     }
 
+    fn open_config(&self) -> LocalFuture<'_, Result<Option<InputFile>, String>> {
+        Box::pin(async {
+            let picked = unpack(invoke("pick_files", object(&[("any", JsValue::TRUE)])).await?)?;
+            Ok(picked.and_then(|(_, files)| with_disk_paths(files).into_iter().next()))
+        })
+    }
+
     fn watch_folder(&self, handle: &FolderHandle) {
         if let FolderHandle::Native(path) = handle {
             let path = path.clone();
@@ -205,6 +212,7 @@ impl Backend for TauriBackend {
 pub struct Startup {
     pub files: Vec<String>,
     pub sources: Vec<String>,
+    pub config: Option<String>,
     pub smoke: bool,
     pub smoke_watch: bool,
 }
@@ -220,6 +228,7 @@ pub async fn startup() -> Option<Startup> {
     Some(Startup {
         files: strings(&get(&s, "files")),
         sources: strings(&get(&s, "sources")),
+        config: get(&s, "config").as_string(),
         smoke: get(&s, "smoke").as_bool().unwrap_or(false),
         smoke_watch: get(&s, "smoke_watch").as_bool().unwrap_or(false),
     })
