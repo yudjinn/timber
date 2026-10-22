@@ -64,7 +64,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Command line: `timber FILE… --source DIR…`, `--smoke`, `--smoke-watch`
 - [x] Greyed-out desktop-only features in the web build ("Requires the desktop app"); desktop SSH says "arrives in M5"
 - [x] Verified: `--smoke` (kernel tree + patched DTB → 100% match, 3 differences, under 3 s); `--smoke-watch` (editing a .dts while open → reloaded, 4 differences); web build re-checked in headless Chromium
-- [ ] Manual check of the native dialogs on Linux, Windows, macOS
+- [x] Manual check of the native dialogs and Open in editor on Linux (2026-10-22)
+- [ ] Manual check on Windows and macOS
 
 ## M4 · BSP folders — done 2026-10-22
 - [x] Folder indexing (desktop native, M3; web, M2b/M2c)
@@ -77,12 +78,15 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Verified in headless Chromium: composite `rk3588-rock-5b-pcie-ep` builds with overlay source links; a DTB with the overlay applied at boot goes from 4 differences to 0 once the overlay is added under "applied at boot"
 - [x] Esc closes dialogs even while typing in one of their fields
 
-## M5 · SSH (desktop)
-- [ ] Connect dialog; ssh-config aliases
-- [ ] Auth: agent, key files, none, password, keyboard-interactive
-- [ ] TOFU host keys in Timber's own `known_hosts` (D-007)
-- [ ] Live fetch: `tar` procfs → `od` walker → `/sys/firmware/fdt`; tar → `Tree`
-- [ ] `/proc/config.gz`; board auto-match by `compatible`
+## M5 · SSH (desktop) (D-028…D-031)
+- [ ] russh client in the desktop app; `~/.ssh/config` (Host patterns, HostName/User/Port/IdentityFile/ProxyJump/ProxyCommand)
+- [ ] Auth: agent, key files (+ passphrase), none, password (incl. empty), keyboard-interactive (password-style)
+- [ ] Host keys: TOFU into Timber's `known_hosts`, read-only `~/.ssh/known_hosts`, changed-key re-trust (D-028)
+- [ ] Extra options: `-J`/ProxyJump via system ssh, ProxyCommand, `-p/-l/-i/-o …` (D-029)
+- [ ] Fetch: tar → od → /sys/firmware/fdt; tar/od → `Tree`; configurable tree path
+- [ ] `/proc/config.gz` offered as kernel config (D-030)
+- [ ] Connect dialog, recent devices, live session with Refresh / auto-refresh (D-031)
+- [ ] Tests against a throwaway sshd (key auth, host keys, tar/od, config.gz, refresh); manual check of password auth on a real board
 
 ## M6 · Diff
 - [ ] Phandle-normalised tree diff

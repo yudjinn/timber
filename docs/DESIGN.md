@@ -326,33 +326,47 @@ A missing include is a clear error that names the file and the line that include
 
 ## 6. SSH (desktop only)
 
-**Library:** `russh` (client) in the Tauri backend, on Tokio.
+**Library:** `russh` in the desktop app; the web build shows SSH greyed out.
 
-**Connect dialog**
-- Fields: host (accepts `user@host:port` or a `~/.ssh/config` alias), user, port, auth method.
-- Remembered per host: user, port and the last auth method. **Passwords are never stored.**
+**Connect dialog** (toolbar **SSH**, or Sources → Tree shown → *Connect to device…*):
+- **Fields:** host (accepts `user@host:port` or an `~/.ssh/config` alias), user, port, and auth (Automatic / Password / Key file), with password, key path and passphrase.
+- **Extra options** ([D-029](DECISIONS.md)): OpenSSH-style, including `-J`/`ProxyJump` and `ProxyCommand`.
+- **Remote tree path:** advanced; default `/proc/device-tree`.
+- **Recent devices:** one-click reconnect, remembering host, user, port, auth method and options. Passwords are never stored.
 
-**Auth methods, tried in this order** unless you pick one:
-1. ssh-agent (Unix socket / Windows OpenSSH agent pipe / Pageant)
-2. key files from `~/.ssh/config` `IdentityFile` or default names, with a passphrase prompt if needed
-3. `none`, for root with an empty password, common on dev boards
-4. password
-5. keyboard-interactive, with prompts relayed to the UI so PAM/dropbear password prompts work
+**`~/.ssh/config`:** `Host` patterns (`*`, `?`, `!`), with the first value found winning, for `HostName`, `User`, `Port`, `IdentityFile`, `ProxyJump` and `ProxyCommand`.
 
-**Host keys (trust on first use)**
-- Known keys are read from `~/.ssh/known_hosts` (read-only, never modified) and from Timber's own `known_hosts` in the app data dir ([D-007](DECISIONS.md)).
-- **First connection:** show the fingerprint. If you accept, it's written to Timber's file.
-- **Key changed:** a hard stop with a big warning. There's no one-click bypass; you remove the old entry in Settings.
+**Authentication** (Automatic tries each in order):
+1. ssh-agent
+2. key files: `IdentityFile`, else `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`. A key that needs a passphrase asks for one.
+3. `none`
+4. password, including an empty one (common for root on dev boards)
+5. keyboard-interactive, answering password-style prompts with the password
 
-**Fetching the tree** (`LiveSource`)
-- **Auto (default):**
-  1. Try `tar -C /proc/device-tree -cf - .`, falling back to `/sys/firmware/devicetree/base`. This is the live tree, including runtime overlays, and needs no root.
-  2. If there's no `tar`, use a POSIX `sh` + `od` walker that streams a simple length-prefixed format.
-  3. Otherwise read `/sys/firmware/fdt`, which needs root and is the boot-time tree.
-- **The fetch result says which source was used**, shown in the UI as "Live (procfs)" vs "Boot FDT".
-- The tar result becomes a `Tree` in core. The kernel's synthetic `name` properties are dropped when they just repeat the node's base name.
-- **Config:** `zcat /proc/config.gz` is fetched when present, for board detection.
-- **Timeouts:** connect 10 s, command 30 s. Errors are shown in plain language, e.g. "Host key changed", "Permission denied (password)", "tar not found, fell back to /sys/firmware/fdt".
+**Host keys (trust on first use):**
+- `~/.ssh/known_hosts` is read but never modified; Timber's own `known_hosts` is in the app data directory.
+- **Unknown key:** the dialog shows the SHA-256 fingerprint. **Trust** saves it and reconnects.
+- **Changed key** ([D-028](DECISIONS.md)): the connection stops. The warning shows the old and new fingerprints, with **"Device was reflashed: trust the new key"**.
+
+**Fetching** runs one remote `sh` script, which prints a header line naming what it sends:
+1. **`TAR`:** `tar` of the tree path, `/proc/device-tree` by default, falling back to `/sys/firmware/devicetree/base`. This is the live tree, including runtime overlays.
+2. **`OD`:** no `tar`, so `find` + `od` hex dumps (busybox).
+3. **`FDT`:** `cat /sys/firmware/fdt`, the boot-time blob (needs root).
+
+The result is converted to a `Tree`. The kernel's synthetic `name` properties are dropped where they just repeat the node's base name. The tree is shown as **"host · live"** or **"host · boot FDT"**, and everything else (source matching, differences, boot overlays, export) applies.
+
+**Device config:** if `/proc/config.gz` exists, Timber always asks whether to use it as the kernel config ([D-030](DECISIONS.md)).
+
+**Live session** ([D-031](DECISIONS.md)): the connection stays open while the tree is shown.
+- **Refresh** and **auto-refresh** (off / 5 s / 10 s / 30 s / 60 s) re-read the device.
+- The view only changes when the tree did.
+- Showing anything else disconnects.
+
+**Errors:** in plain language, e.g. "Host key changed", "Permission denied (tried: agent, key ~/.ssh/id_ed25519, password)", "No device tree at /proc/device-tree and /sys/firmware/fdt isn't readable (needs root)". Timeouts: connect 10 s, commands 30 s.
+
+**Tests:**
+- A throwaway `sshd` on a high port with temporary keys and a fake tree directory, which is why the tree path is configurable. It covers key auth, unknown/changed host keys, `tar` vs `od`, `config.gz`, and refresh.
+- Password and keyboard-interactive auth need a manual check against a real board: a non-root `sshd` can't check passwords.
 
 ---
 

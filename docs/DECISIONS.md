@@ -53,7 +53,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Revisit:** if Firefox ships the File System Access API.
 
 ## D-007 · Accepted host keys go to Timber's own `known_hosts`
-- **Status:** Accepted · 2026-10-21
+- **Status:** Accepted · 2026-10-21. The changed-key rule is superseded by D-028.
 - **Decision:**
   - Host keys are trusted on first use.
   - Timber reads `~/.ssh/known_hosts` but never modifies it.
@@ -244,4 +244,36 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   2. **"Overlays applied at boot", under a DTB's source board:** applied to the compiled source board before comparing. Use it when the device's DTB already had overlays applied, so the overlay changes don't show as differences.
 
   Composite boards from the Makefiles (`board-dtbs := base.dtb x.dtbo`) fill list 1 when shown.
+
+## D-028 · A changed host key can be re-trusted from the warning
+- **Status:** Accepted · 2026-10-22. Supersedes D-007's "hard stop; remove in Settings".
+- **Decision:**
+  - A changed host key still stops the connection.
+  - The warning shows the old and new SHA-256 fingerprints and offers **"Device was reflashed: trust the new key"**. That replaces the entry in Timber's `known_hosts`.
+  - Entries from `~/.ssh/known_hosts` are never modified. A changed key there is overridden by Timber's own entry.
+- **Why:** Dev boards get reflashed constantly, and each reflash makes a new host key. Clearing it in Settings every time would just be friction, while showing both fingerprints keeps it a deliberate choice.
+
+## D-029 · "Extra options" for connections, OpenSSH style
+- **Status:** Accepted · 2026-10-22
+- **Decision:** The connect dialog has an **Extra options** field for OpenSSH-style options.
+  - **Supported:**
+    - `-J host` / `-o ProxyJump=host`: implemented as `ssh -W %h:%p host` through your system `ssh`, so the jump host uses your normal keys, agent and config
+    - `-o ProxyCommand=cmd`, with `%h`, `%p` and `%r`
+    - `-p`, `-l`, `-i`, and `-o Port/User/IdentityFile/ConnectTimeout`
+  - **Anything else** is reported as unsupported.
+  - **`ProxyJump`/`ProxyCommand` in `~/.ssh/config`** work the same way.
+- **Why:** You asked for "extra args" to cover things like ProxyJump. Timber's SSH client is russh, not the `ssh` binary, so the options are interpreted rather than passed through. A proxy command covers jump hosts and anything more unusual.
+
+## D-030 · The device's kernel config is offered, never applied silently
+- **Status:** Accepted · 2026-10-22
+- **Decision:** After connecting, if the device has `/proc/config.gz`, Timber always asks: "Use this device's kernel config?"
+- **Why:** You asked for that. A config silently replacing the one you chose would be surprising.
+
+## D-031 · Live devices: Refresh and auto-refresh
+- **Status:** Accepted · 2026-10-22
+- **Decision:**
+  - The SSH connection stays open while a live tree is shown.
+  - **Refresh** re-reads the device. **Auto-refresh** does it every 5 s / 10 s / 30 s / 60 s (off by default).
+  - The view is only rebuilt when the device's tree actually changed, keeping the web as it is.
+  - Switching to another tree disconnects.
 
