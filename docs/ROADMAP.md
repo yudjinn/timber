@@ -72,7 +72,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] dts Makefile evaluation (`dtb-$(CONFIG_…)`, subdirs, composites, `DTC_FLAGS -@`, variables, conditionals) → board picker (built first, chips); built boards win matching ties; kernel test `kernel_makefiles`
 - [x] Source viewer drawer (syntax highlight, block highlight, include/label links, history); open in editor via template (D-026); Settings dialog; clickable source locations in the node panel and compiler messages
 - [x] Folder watcher + recompile (desktop, M3); Reload button (web, M2c)
-- [ ] Overlay application (libfdt semantics) + `*-dtbs` composites; two overlay lists (D-009, D-027)
+- [x] Core overlay application (libfdt semantics); kernel test `kernel_overlays`: 473/473 composites match `fdtoverlay`
+- [ ] UI: two overlay lists (D-027), composites in the board picker, overlay source locations
 
 ## M5 · SSH (desktop)
 - [ ] Connect dialog; ssh-config aliases

@@ -298,24 +298,20 @@ A missing include is a clear error that names the file and the line that include
 - `CONFIG_ARCH_ROCKCHIP=y` alone builds the 308 Rockchip targets
 - the arm64 defconfig is inferred as arm64 and builds 1,913
 
-### 5.4 Applying overlays ([D-009](DECISIONS.md))
+### 5.4 Applying overlays ([D-009](DECISIONS.md), [D-027](DECISIONS.md))
 
-Overlays are applied onto a base tree **on request**, using the "Apply overlays…" action or a Makefile composite.
+`timber_core::overlay::apply` follows libfdt's `fdt_overlay_apply`, which is what U-Boot and `fdtoverlay` run:
+1. **Phandles:** the overlay's own phandles are shifted above the base's highest, and the cells listed in `__local_fixups__` follow.
+2. **`__fixups__`:** each label is resolved through the base's `__symbols__`. A base without them gets a clear "build the base with dtc -@" error.
+3. **Phandle conflicts:** settled for **all** fragments before any is merged. An overlay node landing on a base node that already has a phandle drops its own phandle, and references are pointed at the existing one.
+4. **Merging:** each fragment's `__overlay__` goes into its `target` (phandle) or `target-path`. libfdt's quirks are matched:
+   - new properties and subnodes are inserted **before** existing ones
+   - a name without a unit address matches an existing node *with* one (`spi` merges into `spi@fe300000`)
+5. **Symbols:** the overlay's `__symbols__` are added to the base's, rewritten to their new paths.
 
-- **Inputs:** `.dtbo` files, or `.dtso` / `/plugin/` sources compiled on the fly.
-- **Stacking:** several overlays apply in order.
-- **Resolving each fragment's target**, in this order:
-  1. `target-path`
-  2. `target = <phandle>`, a phandle already present in the base
-  3. a label, through `__fixups__` and the base tree's `__symbols__`
-- **Merging:** the `__overlay__` contents are merged with the same semantics as `&label { }` in the compiler.
-- **Phandles:**
-  - The overlay's internal phandles are renumbered above the base tree's maximum, with `__local_fixups__` updating the cells that refer to them.
-  - `__fixups__` entries are patched with the target's phandle, which is assigned if needed.
-- **Source map:** every node and property an overlay touches is recorded with an `Overlay(name)` location, so the node panel shows e.g. "set by `rk3568-evb-camera.dtbo`".
-- **Errors:**
-  - A prebuilt base `.dtb` without `__symbols__` can't resolve label-targeted fragments. That's reported per fragment ("rebuild the base with `dtc -@`"); other fragments still apply.
-  - A missing target is an error naming the fragment and the label.
+`.dtso` sources are compiled in `-@` mode, as the kernel builds overlays. Applying overlays to a base needs the base's `__symbols__`, so a board from sources is compiled with `-@` whenever overlays are attached.
+
+**Verified:** all **473** kernel composite boards (`name-dtbs := base.dtb x.dtbo…`) match `fdtoverlay` exactly. That's the `kernel_overlays` golden test; 5 are skipped because `dtc`/`fdtoverlay` themselves reject them.
 
 ---
 

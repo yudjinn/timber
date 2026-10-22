@@ -400,3 +400,132 @@ fn kernel_makefiles() {
         );
     }
 }
+
+/// Overlay application matches `fdtoverlay` (libfdt) on every kernel composite board.
+#[test]
+fn kernel_overlays() {
+    let Ok(dir) = std::env::var("TIMBER_KERNEL_DIR") else {
+        eprintln!("skipping: set TIMBER_KERNEL_DIR to a kernel checkout");
+        return;
+    };
+    let ok = |cmd: &str| {
+        Command::new(cmd)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok()
+    };
+    if !have_tools() || !ok("fdtoverlay") {
+        eprintln!("skipping: cpp, dtc and fdtoverlay are required");
+        return;
+    }
+    let root = PathBuf::from(dir);
+    let filter = std::env::var("TIMBER_KERNEL_FILTER").unwrap_or_default();
+    let vfs = load_dir(&root, &["arch"]);
+    let k = timber_core::kbuild::evaluate(&vfs, None, None);
+    let tmp = std::env::temp_dir().join(format!("timber-overlays-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let (mut passed, mut skipped, mut failures) = (0, 0, Vec::new());
+    for (n, target) in k
+        .targets
+        .iter()
+        .filter(|t| t.composite.is_some() && t.dtb.contains(&filter))
+        .enumerate()
+    {
+        let parts = target.composite.as_ref().unwrap();
+        let arch_dts = |p: &str| {
+            let a = p
+                .split("arch/")
+                .nth(1)
+                .and_then(|r| r.split('/').next())
+                .unwrap_or("arm64")
+                .to_string();
+            vec![
+                root.join("scripts/dtc/include-prefixes"),
+                root.join(format!("arch/{a}/boot/dts")),
+                root.join("include"),
+            ]
+        };
+        // Build every part with dtc -@ and write it out for fdtoverlay.
+        let mut built = Vec::new();
+        let mut failed = false;
+        for (i, part) in parts.iter().enumerate() {
+            let src = match part.strip_suffix(".dtbo") {
+                Some(b) => format!("{b}.dtso"),
+                None => format!("{}.dts", part.trim_end_matches(".dtb")),
+            };
+            match dtc_compile(&root.join(&src), &arch_dts(&src), true) {
+                Ok(tree) => {
+                    let path = tmp.join(format!("{n}-{i}.dtb"));
+                    std::fs::write(&path, dtb::write(&tree)).unwrap();
+                    built.push((path, tree));
+                }
+                Err(_) => failed = true,
+            }
+        }
+        if failed || built.len() < 2 {
+            skipped += 1;
+            continue;
+        }
+        let out = tmp.join(format!("{n}-out.dtb"));
+        let status = Command::new("fdtoverlay")
+            .arg("-i")
+            .arg(&built[0].0)
+            .arg("-o")
+            .arg(&out)
+            .args(built[1..].iter().map(|(p, _)| p))
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        if !status.success() {
+            skipped += 1;
+            continue;
+        }
+        let expected = dtb::parse(&std::fs::read(&out).unwrap()).unwrap();
+        let mut ours = built[0].1.clone();
+        let mut error = None;
+        for (_, ov) in &built[1..] {
+            match timber_core::overlay::apply(&ours, ov) {
+                Ok(a) => ours = a.tree,
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+        }
+        let problems = match error {
+            Some(e) => vec![format!("error: {e}")],
+            None => diff_trees(&ours, &expected),
+        };
+        if problems.is_empty() {
+            passed += 1;
+        } else {
+            failures.push(format!(
+                "== {}\n{}",
+                target.dtb,
+                problems
+                    .iter()
+                    .take(4)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    eprintln!(
+        "overlays: {passed} match fdtoverlay, {} differ, {skipped} skipped",
+        failures.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{}",
+        failures
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
