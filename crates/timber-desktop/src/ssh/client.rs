@@ -657,8 +657,9 @@ pub async fn fetch(handle: &Handle<Client>, tree_path: &str) -> Result<Fetched, 
     parse_fetch(&out, tree_path)
 }
 
-/// `fetch` with the device's `PATH` replaced (to test the fallbacks).
-#[cfg(test)]
+/// `fetch` with the device's `PATH` replaced (to test the fallbacks; the sshd tests are
+/// Unix only).
+#[cfg(all(test, unix))]
 pub async fn fetch_with_path(
     handle: &Handle<Client>,
     tree_path: &str,
