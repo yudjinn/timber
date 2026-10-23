@@ -637,6 +637,7 @@ timber/
 **CI** ([D-037](DECISIONS.md)), on every push to `main` and every pull request:
 - **Rust**, on Ubuntu 24.04 and Windows: format (Linux), clippy with warnings as errors (and the wasm UI on Linux), `cargo test`. The sshd and `od` tests skip where the tools don't exist.
 - **UI**, on Ubuntu: `trunk build`, then the Playwright suite, with the kernel-backed tests against a sparse, cached kernel checkout (`fetch-kernel.sh`, pinned to `v7.2`).
+- **Caching:** Rust dependencies (only `main` saves the cache, so pull requests don't evict it), the kernel checkout, npm packages and Playwright's Chromium. CI builds without debug info (`CARGO_PROFILE_DEV_DEBUG=0`) for faster builds and a smaller cache. Docs-only commits skip CI.
 - **Golden** (`golden.yml`): every arm64, arm and riscv board and overlay against cpp + dtc, plain and `-@`. Weekly and on demand, with any kernel tag.
 
 **Release** ([D-038](DECISIONS.md)), on pushing a tag `vX.Y.Z`:
