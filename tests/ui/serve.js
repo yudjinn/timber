@@ -27,7 +27,7 @@ createServer(async (req, res) => {
     const body = await readFile(file);
     // As a deployment should: the page is checked on every load, hashed files are cached
     // for good (D-036).
-    const hashed = /-[0-9a-f]{16}(_bg)?\.\w+$/.test(file);
+    const hashed = /-[0-9a-f]{8,}(_bg)?\.\w+$/.test(file);
     res
       .writeHead(200, {
         "content-type": types[extname(file)] || "application/octet-stream",

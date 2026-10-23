@@ -103,7 +103,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Verified: 19 Playwright specs (ghosts, side-by-side, Only differences, Markdown, snapshots, compare with previous, default source comparison); desktop `--smoke` unchanged (3 differences)
 - [ ] Manual check: snapshots and Compare with previous against a real board
 
-## M7 · Packaging
-- [ ] CI: `cargo test`, clippy, and the Playwright tests in `tests/ui`
-- [ ] GitHub Actions release matrix (Linux AppImage/deb, Windows msi/exe, macOS dmg)
-- [ ] Static web deploy, with `no-cache` for `index.html` and long-lived caching for the hashed files (D-036)
+## M7 · Packaging (D-037…D-039)
+- [x] CI (`ci.yml`): fmt, clippy, `cargo test` on Ubuntu and Windows; Playwright on Ubuntu with a sparse, cached kernel (`v7.2`)
+- [x] Weekly golden run against dtc (`golden.yml`): arm64, arm, riscv, plain and `-@`
+- [x] Release (`release.yml`): tag must match the version; Linux AppImage/.deb and Windows .msi/.exe as a draft release, unsigned
+- [x] Web deploy to Cloudflare Pages with `_headers` for D-036 caching
+- [x] Verified locally: the kernel fetch, golden tests and Playwright suite against `v7.2`; the Playwright suite against the release web build; the Linux bundles; the version check
+- [ ] First run on GitHub: push, then check CI (the first Windows build and test run is the first time the Windows-only code is compiled)
+- [ ] Cloudflare: create the Pages project, add `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and optionally `CLOUDFLARE_PAGES_PROJECT`
+- [ ] First release: tag `v0.1.0`, check the draft
+- Later: macOS builds, signing, arm64, an in-app updater

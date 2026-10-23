@@ -5,7 +5,8 @@
 mod client;
 mod hostkeys;
 mod options;
-#[cfg(test)]
+// The sshd tests need a Unix sshd and symlinks.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::HashMap;

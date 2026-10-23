@@ -317,3 +317,29 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
     - **Web:** checks on load, when the window regains focus, and every 15 minutes. A newer build shows "A new version of Timber is available" with **Reload** and **Later**. **Later** leaves a small **Update available** badge in the top left and stops checking until the next load.
 - **Why:** You asked for caching that notices when it's out of date. The desktop webview had kept serving an old build from its cache. Reloading the web build loses open files, which a browser can't re-read without asking, so it asks rather than forcing it.
 
+## D-037 · CI on Linux and Windows, private repo
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - The repo stays private for now.
+  - Every push to `main` and every pull request runs format, clippy and `cargo test` on Ubuntu and Windows, plus the Playwright suite on Ubuntu with the kernel-backed tests.
+  - The kernel is a sparse, shallow checkout of a pinned tag (`v7.2`), cached between runs. Nothing from it is committed (D-014).
+  - The full golden comparison runs weekly and on demand.
+  - No macOS jobs.
+- **Why:** On a private repo, Actions minutes are limited (Windows counts 2×, macOS 10×). The golden run takes minutes per architecture, so it doesn't belong on every push.
+
+## D-038 · Releases: Linux and Windows, unsigned, drafts
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - Pushing a tag `vX.Y.Z` builds Linux x86_64 (AppImage, .deb) and Windows (.msi, NSIS .exe) into a **draft** GitHub Release, after CI passes. The tag must match the app's version.
+  - The builds are unsigned. No macOS builds and no arm64 builds for now.
+  - No in-app updater for now.
+- **Why:** Your choices. Signing needs paid certificates, and unsigned builds only cost a warning on first run. Drafts let you check a release before anyone sees it.
+
+## D-039 · The web build is hosted on Cloudflare Pages
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - Each release tag deploys `trunk build --release` to Cloudflare Pages.
+  - It needs the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The project name comes from the repository variable `CLOUDFLARE_PAGES_PROJECT` (default `timber`).
+  - `_headers` (copied into `dist/` by trunk) applies D-036: `no-cache` for the page, a year and `immutable` for the hashed files.
+- **Why:** Your choice. Pages supports custom headers, which GitHub Pages doesn't, and it works with a private repo.
+

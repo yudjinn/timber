@@ -619,28 +619,32 @@ If a heuristic doesn't fit the bytes, for example a phandle that doesn't exist, 
 ```
 timber/
   Cargo.toml                 # workspace
-  crates/timber-core/
-  crates/timber-ui/          # index.html, Trunk.toml, src/, style
-  crates/timber-desktop/     # Tauri v2: tauri.conf.json, capabilities/, src/
-  docs/DESIGN.md
-  justfile                   # dev / build / web / test shortcuts
+  Trunk.toml                 # web build: crates/timber-ui/index.html → dist/
+  crates/timber-core/        # tree model, DTB, DTS compiler, overlays, diff, kbuild, live
+  crates/timber-ui/          # Leptos UI (wasm): index.html, style.css, _headers, src/
+  crates/timber-desktop/     # Tauri v2: tauri.conf.json, capabilities/, src/ (files, watch, ssh)
+  tests/ui/                  # Playwright tests of the web build
+  .github/workflows/         # ci.yml, golden.yml, release.yml
+  .github/scripts/           # fetch-kernel.sh, check-version.sh
+  docs/
 ```
 
 **Dev**
-- `cargo tauri dev` runs `trunk serve` for the UI and hot-reloads it inside the Tauri window.
+- `cargo tauri dev` (from `crates/timber-desktop`) runs `trunk serve` and loads the UI from it, reloading on newer builds (D-036).
 - `trunk serve` alone gives the web build.
 
-**Release**
-- `cargo tauri build` produces:
-  - `.msi`/NSIS `.exe` on Windows
-  - `.AppImage` and `.deb` on Linux
-  - `.dmg` and `.app` on macOS
-- CI: a GitHub Actions matrix with one job per OS.
+**CI** ([D-037](DECISIONS.md)), on every push to `main` and every pull request:
+- **Rust**, on Ubuntu 24.04 and Windows: format (Linux), clippy with warnings as errors (and the wasm UI on Linux), `cargo test`. The sshd and `od` tests skip where the tools don't exist.
+- **UI**, on Ubuntu: `trunk build`, then the Playwright suite, with the kernel-backed tests against a sparse, cached kernel checkout (`fetch-kernel.sh`, pinned to `v7.2`).
+- **Golden** (`golden.yml`): every arm64, arm and riscv board and overlay against cpp + dtc, plain and `-@`. Weekly and on demand, with any kernel tag.
 
-**Web**
-- `trunk build --release` produces a static `dist/` that can be deployed to any static host.
+**Release** ([D-038](DECISIONS.md)), on pushing a tag `vX.Y.Z`:
+- The tag must match the version in `Cargo.toml` and `tauri.conf.json`; CI runs first.
+- `tauri-action` builds **Linux** (AppImage, .deb, on Ubuntu 22.04 for older glibc) and **Windows** (.msi, NSIS .exe) into a **draft** GitHub Release. Builds are **unsigned**. No macOS builds for now.
+- **Web** ([D-039](DECISIONS.md)): `trunk build --release` deployed to **Cloudflare Pages**. `_headers` sets the D-036 caching.
+- No in-app updater for now.
 
-**Versions:** pin current stable Tauri 2.x, Leptos 0.8.x and russh 0.6x at the start of implementation.
+**Versions:** Tauri 2.12, Leptos 0.8, russh 0.64, trunk 0.22, Playwright 1.55.
 
 ---
 
@@ -656,7 +660,7 @@ timber/
 **Golden tests against `dtc`**
 - Gated on `dtc` being on PATH, which it is in CI.
 - Compile fixture `.dts` files with both `dtc` and Timber, then compare the trees semantically: same nodes, properties and values, with phandles normalised.
-- **Fixtures:** hand-written sources in `crates/timber-core/tests/fixtures` (MIT), covering includes, macros, overrides, deletions, `/omit-if-no-ref/`, `/bits/`, expressions and an overlay.
+- **Fixtures:** hand-written sources in `crates/timber-core/tests/fixtures`, covering includes, macros, overrides, deletions, `/omit-if-no-ref/`, `/bits/`, expressions and an overlay.
 - **Kernel test:** compiles every board `.dts` and overlay `.dtso` in a kernel checkout and compares each against `dtc`. Set these environment variables:
   - `TIMBER_KERNEL_DIR` (required)
   - `TIMBER_KERNEL_ARCH` (default `arm64`)
@@ -668,8 +672,8 @@ timber/
 - **Speed:** an 813-node RK3588 board (23 input files) compiles in about 21 ms in a native release build. Measure with `cargo run --release -p timber-core --example compile -- <kernel> <board.dts>`.
 
 **Other tests**
-- **Live fetch:** tar → `Tree` conversion tested with captured tarballs.
-- **Desktop SSH:** an integration test against a throwaway `sshd` container in CI (Linux only), covering password, key and TOFU.
+- **Live fetch:** a fixture tree laid out like `/proc/device-tree`, dumped with the system's `tar` and `od`, and read back.
+- **Desktop SSH:** integration tests against a throwaway `sshd` run as the current user (Unix only): key auth, passphrases, host keys, ProxyCommand, tar/od fetching, reconnecting. Password logins need a real board.
 - **UI:** Playwright tests in `tests/ui`, run against the web build (`dist/`) in headless Chromium. A browser console error fails the test.
   - Fixtures are built at test time into `tests/ui/.fixtures/` (gitignored): the repo's fixture board via cpp + dtc + fdtoverlay and, with `TIMBER_KERNEL_DIR`, a small staged kernel for rk3588-rock-5b plus a DTB patched with fdtput the way U-Boot would. Kernel tests skip without it.
   - The directory picker is driven with a real handle from the origin-private file system. SSH flows run against a mocked `window.__TAURI__`; the real SSH backend has its own tests against a throwaway sshd.

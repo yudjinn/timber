@@ -1,0 +1,86 @@
+# Push a tag like v0.2.0 (matching the version in Cargo.toml and tauri.conf.json): runs CI,
+# builds the Linux and Windows apps into a draft GitHub Release, and deploys the web build
+# to Cloudflare Pages (D-038, D-039).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Tag matches the version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/check-version.sh "$GITHUB_REF_NAME"
+
+  ci:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: ci
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the AppImage and .deb run on older systems too.
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+          - os: windows-latest
+            bundles: msi,nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.22
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      # Unsigned for now (D-038). tauri-action runs `trunk build --release` (beforeBuildCommand).
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/timber-desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Timber ${{ github.ref_name }}
+          releaseBody: Unsigned builds; see the README for first-run notes on Windows.
+          releaseDraft: true
+          args: --bundles ${{ matrix.bundles }}
+
+  web:
+    name: Web (Cloudflare Pages)
+    needs: ci
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.22
+      - run: trunk build --release
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT || 'timber' }} --branch=main

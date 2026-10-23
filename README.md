@@ -42,6 +42,7 @@ timber --ssh rock5b --ssh-options "-J me@gateway"
 
 ```sh
 cargo test                       # unit tests + golden tests against dtc (needs cpp and dtc on PATH)
+.github/scripts/fetch-kernel.sh v7.2 ~/linux   # the sparse kernel checkout CI uses (~100 MB)
                                  # SSH tests start a throwaway sshd as you (skipped without /usr/bin/sshd)
 
 # Compare against every board and overlay in a kernel checkout:
@@ -63,3 +64,21 @@ cargo run --release -p timber-core --example compile -- ~/src/linux arch/arm64/b
 | `crates/timber-core` | Tree model, DTB reader/writer, DTS compiler (preprocessor, dtc-compatible), formatting |
 | `crates/timber-ui` | Leptos UI compiled to wasm |
 | `crates/timber-desktop` | Tauri 2 desktop app: native dialogs, folders from disk, watcher, SSH (russh) |
+
+## Releases
+
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request. The full comparison against dtc (`golden.yml`) runs weekly, or from the Actions tab with any kernel tag.
+
+To release:
+
+1. Set the new version in `Cargo.toml` (`[workspace.package]`) and `crates/timber-desktop/tauri.conf.json`, and commit.
+2. Tag and push: `git tag v0.2.0 && git push origin main v0.2.0`.
+3. `release.yml` checks the tag matches the version and runs CI. It then builds the Linux (AppImage, .deb) and Windows (.msi, .exe) apps into a **draft** release, and deploys the web build to Cloudflare Pages.
+4. Check the draft under Releases and publish it.
+
+**Cloudflare setup (once):** create a Pages project (Direct Upload). In the repo's settings, add the secrets `CLOUDFLARE_API_TOKEN` (a token with *Cloudflare Pages: Edit*) and `CLOUDFLARE_ACCOUNT_ID`. If the project isn't named `timber`, also add the variable `CLOUDFLARE_PAGES_PROJECT`.
+
+**The builds are unsigned:**
+- **Windows:** SmartScreen warns on first run; choose *More info* → *Run anyway*.
+- **Linux:** `chmod +x Timber_*.AppImage` before running it. Or install the .deb with `sudo apt install ./timber_*.deb`.
+

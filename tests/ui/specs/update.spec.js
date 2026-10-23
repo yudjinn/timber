@@ -11,7 +11,7 @@ async function newerBuildOnServer(page) {
   await page.route(isPage, async (route) => {
     if (route.request().resourceType() !== "fetch") return route.continue();
     const response = await route.fetch();
-    const body = (await response.text()).replaceAll(/timber-ui-[0-9a-f]{16}_bg\.wasm/g, "timber-ui-0000000000000000_bg.wasm");
+    const body = (await response.text()).replaceAll(/timber-ui-[0-9a-f]+_bg\.wasm/g, "timber-ui-0000000000000000_bg.wasm");
     await route.fulfill({ response, body });
   });
 }

@@ -1,0 +1,45 @@
+# Every board and overlay in a kernel tree compiled by Timber and by cpp + dtc, compared
+# node by node (D-014). Too slow for every push: weekly, and on demand with any tag.
+name: Golden (kernel vs dtc)
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      kernel:
+        description: Kernel tag
+        default: v7.2
+
+env:
+  CARGO_TERM_COLOR: always
+  KERNEL_TAG: ${{ inputs.kernel || 'v7.2' }}
+
+jobs:
+  golden:
+    name: ${{ matrix.arch }}${{ matrix.symbols == '1' && ' (dtc -@)' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, arm, riscv]
+        symbols: ["0", "1"]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: dtc
+        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
+      - name: Kernel cache
+        uses: actions/cache@v4
+        with:
+          path: ~/linux
+          key: kernel-${{ env.KERNEL_TAG }}
+      - name: Kernel
+        run: .github/scripts/fetch-kernel.sh "$KERNEL_TAG" ~/linux
+      - name: Golden
+        run: cargo test --release -p timber-core --test golden -- --nocapture
+        env:
+          TIMBER_KERNEL_DIR: /home/runner/linux
+          TIMBER_KERNEL_ARCH: ${{ matrix.arch }}
+          TIMBER_KERNEL_SYMBOLS: ${{ matrix.symbols }}
