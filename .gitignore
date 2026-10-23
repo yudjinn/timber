@@ -5,3 +5,4 @@
 /tests/ui/.fixtures/
 /tests/ui/test-results/
 /tests/ui/playwright-report/
+/.wrangler

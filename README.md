@@ -73,10 +73,14 @@ To release:
 
 1. Set the new version in `Cargo.toml` (`[workspace.package]`) and `crates/timber-desktop/tauri.conf.json`, and commit.
 2. Tag and push: `git tag v0.2.0 && git push origin main v0.2.0`.
-3. `release.yml` checks the tag matches the version and runs CI. It then builds the Linux (AppImage, .deb) and Windows (.msi, .exe) apps into a **draft** release, and deploys the web build to Cloudflare Pages.
+3. `release.yml` checks the tag matches the version and runs CI. It then builds the Linux (AppImage, .deb) and Windows (.msi, .exe) apps into a **draft** release, and deploys the web build to Cloudflare.
 4. Check the draft under Releases and publish it.
 
-**Cloudflare setup (once):** create a Pages project (Direct Upload). In the repo's settings, add the secrets `CLOUDFLARE_API_TOKEN` (a token with *Cloudflare Pages: Edit*) and `CLOUDFLARE_ACCOUNT_ID`. If the project isn't named `timber`, also add the variable `CLOUDFLARE_PAGES_PROJECT`.
+**Cloudflare setup (once).** The web build runs on Cloudflare Workers as static assets (`wrangler.jsonc`). Nothing needs creating in the dashboard; the first deploy creates the Worker.
+1. Cloudflare dashboard → **Manage account** → **Account API tokens** → **Create Token** → the **Edit Cloudflare Workers** template, scoped to your account.
+2. Copy your **Account ID** (shown on the account's home page and in Workers & Pages).
+3. In GitHub: **Settings** → **Secrets and variables** → **Actions**. Add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. To name the Worker something other than `timber`, add the variable `CLOUDFLARE_WORKER_NAME`.
+4. Run **Deploy web** from the Actions tab. The site appears at `https://timber.<your-subdomain>.workers.dev`. Add a custom domain under the Worker's **Settings** → **Domains & Routes**.
 
 **The builds are unsigned:**
 - **Windows:** SmartScreen warns on first run; choose *More info* → *Run anyway*.

@@ -1,6 +1,6 @@
 # Push a tag like v0.2.0 (matching the version in Cargo.toml and tauri.conf.json): runs CI,
 # builds the Linux and Windows apps into a draft GitHub Release, and deploys the web build
-# to Cloudflare Pages (D-038, D-039).
+# to Cloudflare Workers as static assets (D-038, D-039).
 name: Release
 
 on:
@@ -66,21 +66,6 @@ jobs:
           args: --bundles ${{ matrix.bundles }}
 
   web:
-    name: Web (Cloudflare Pages)
     needs: ci
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: trunk@0.22
-      - run: trunk build --release
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT || 'timber' }} --branch=main
+    uses: ./.github/workflows/web.yml
+    secrets: inherit

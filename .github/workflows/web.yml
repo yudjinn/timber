@@ -1,0 +1,31 @@
+# The web build on Cloudflare Workers, as static assets (D-039). Run by release.yml, or by
+# hand from the Actions tab (e.g. to check the Cloudflare secrets).
+name: Deploy web
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    name: Web (Cloudflare Workers)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.22
+      - run: trunk build --release
+      # Static assets only (wrangler.jsonc); the Worker is created on the first deploy.
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --name ${{ vars.CLOUDFLARE_WORKER_NAME || 'timber' }}

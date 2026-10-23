@@ -1,9 +1,6 @@
-# Cloudflare Pages caching (D-036): the page is checked on every load, while the build
-# files, whose names carry a content hash, are cached for good.
-/
-  Cache-Control: no-cache
-/index.html
-  Cache-Control: no-cache
+# Caching on Cloudflare (D-036). Static assets are already served "cache, but revalidate
+# every time" (max-age=0, must-revalidate, with an ETag), which is right for the page. The
+# build files carry a content hash in their names, so they can be cached for good.
 /timber-ui-*
   Cache-Control: public, max-age=31536000, immutable
 /style-*

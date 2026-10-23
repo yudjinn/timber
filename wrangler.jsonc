@@ -1,0 +1,10 @@
+// The web build on Cloudflare Workers, as static assets with no Worker script (D-039).
+// `trunk build --release` fills dist/; release.yml runs `wrangler deploy`, which creates the
+// Worker on its first deploy.
+{
+  "name": "timber",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    "directory": "./dist"
+  }
+}

@@ -107,9 +107,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] CI (`ci.yml`): fmt, clippy, `cargo test` on Ubuntu and Windows; Playwright on Ubuntu with a sparse, cached kernel (`v7.2`)
 - [x] Weekly golden run against dtc (`golden.yml`): arm64, arm, riscv, plain and `-@`
 - [x] Release (`release.yml`): tag must match the version; Linux AppImage/.deb and Windows .msi/.exe as a draft release, unsigned
-- [x] Web deploy to Cloudflare Pages with `_headers` for D-036 caching
+- [x] Web deploy to Cloudflare Workers static assets (`web.yml`, also manual) with `_headers` for D-036 caching; checked locally with `wrangler dev`
 - [x] Verified locally: the kernel fetch, golden tests and Playwright suite against `v7.2`; the Playwright suite against the release web build; the Linux bundles; the version check
 - [ ] First run on GitHub: push, then check CI (the first Windows build and test run is the first time the Windows-only code is compiled)
-- [ ] Cloudflare: create the Pages project, add `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and optionally `CLOUDFLARE_PAGES_PROJECT`
+- [ ] Cloudflare: add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (optionally `CLOUDFLARE_WORKER_NAME`), then run **Deploy web** once
 - [ ] First release: tag `v0.1.0`, check the draft
 - Later: macOS builds, signing, arm64, an in-app updater

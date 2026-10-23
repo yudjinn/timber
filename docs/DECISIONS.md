@@ -335,11 +335,11 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - No in-app updater for now.
 - **Why:** Your choices. Signing needs paid certificates, and unsigned builds only cost a warning on first run. Drafts let you check a release before anyone sees it.
 
-## D-039 · The web build is hosted on Cloudflare Pages
+## D-039 · The web build is hosted on Cloudflare Workers (static assets)
 - **Status:** Accepted · 2026-10-23
 - **Decision:**
-  - Each release tag deploys `trunk build --release` to Cloudflare Pages.
-  - It needs the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The project name comes from the repository variable `CLOUDFLARE_PAGES_PROJECT` (default `timber`).
-  - `_headers` (copied into `dist/` by trunk) applies D-036: `no-cache` for the page, a year and `immutable` for the hashed files.
-- **Why:** Your choice. Pages supports custom headers, which GitHub Pages doesn't, and it works with a private repo.
-
+  - Each release tag (and the manual **Deploy web** workflow) runs `trunk build --release` and `wrangler deploy`. `wrangler.jsonc` describes a Worker with static assets and no script; the first deploy creates it.
+  - It needs the secrets `CLOUDFLARE_API_TOKEN` (the "Edit Cloudflare Workers" template) and `CLOUDFLARE_ACCOUNT_ID`. The Worker's name comes from the repository variable `CLOUDFLARE_WORKER_NAME` (default `timber`).
+  - Caching (D-036): Workers already serves assets as "cache, revalidate every time", which suits the page. `_headers` caches the hashed build files for a year as immutable. `.assetsignore` keeps trunk's lock file out.
+  - Workers limits a single asset to 25 MiB. The release wasm is about 1.5 MB, but a debug build (about 48 MB) can't be deployed.
+- **Why:** You chose Cloudflare, and Workers static assets is its current path for static sites; Pages is no longer where new features go. Unlike GitHub Pages, it supports custom headers and works with a private repo.

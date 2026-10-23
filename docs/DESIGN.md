@@ -624,7 +624,8 @@ timber/
   crates/timber-ui/          # Leptos UI (wasm): index.html, style.css, _headers, src/
   crates/timber-desktop/     # Tauri v2: tauri.conf.json, capabilities/, src/ (files, watch, ssh)
   tests/ui/                  # Playwright tests of the web build
-  .github/workflows/         # ci.yml, golden.yml, release.yml
+  .github/workflows/         # ci.yml, golden.yml, release.yml, web.yml
+  wrangler.jsonc             # the web build on Cloudflare Workers (static assets)
   .github/scripts/           # fetch-kernel.sh, check-version.sh
   docs/
 ```
@@ -641,7 +642,7 @@ timber/
 **Release** ([D-038](DECISIONS.md)), on pushing a tag `vX.Y.Z`:
 - The tag must match the version in `Cargo.toml` and `tauri.conf.json`; CI runs first.
 - `tauri-action` builds **Linux** (AppImage, .deb, on Ubuntu 22.04 for older glibc) and **Windows** (.msi, NSIS .exe) into a **draft** GitHub Release. Builds are **unsigned**. No macOS builds for now.
-- **Web** ([D-039](DECISIONS.md)): `trunk build --release` deployed to **Cloudflare Pages**. `_headers` sets the D-036 caching.
+- **Web** ([D-039](DECISIONS.md)): `trunk build --release` deployed to **Cloudflare Workers** as static assets (`wrangler.jsonc`, no Worker script), by `web.yml`. `_headers` sets the D-036 caching. It can also be run by hand to deploy without releasing.
 - No in-app updater for now.
 
 **Versions:** Tauri 2.12, Leptos 0.8, russh 0.64, trunk 0.22, Playwright 1.55.
