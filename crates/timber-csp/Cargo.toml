@@ -1,0 +1,11 @@
+[package]
+name = "timber-csp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Build step: writes the Content-Security-Policy into the built index.html (D-041)"
+
+[dependencies]
+sha2 = "0.10.9"
+base64 = "0.22.1"

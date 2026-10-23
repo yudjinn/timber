@@ -8,6 +8,7 @@ test("the shortcuts show on startup until turned off", async ({ page }) => {
   await expect(page.getByText("Getting around")).toBeVisible();
   await page.getByRole("button", { name: "Got it" }).click();
   await expect(page.locator(".empty-card")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Timber on GitHub" })).toHaveAttribute("href", "https://github.com/yudjinn/timber");
   await page.reload();
   await expect(page.getByText("Getting around")).toBeVisible();
   await page.getByLabel("Don't show on startup").check();

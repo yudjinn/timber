@@ -5374,6 +5374,14 @@ name = "timber-core"
 version = "0.1.0"
 
 [[package]]
+name = "timber-csp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "timber-desktop"
 version = "0.1.0"
 dependencies = [

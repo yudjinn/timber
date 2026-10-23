@@ -180,24 +180,42 @@ fn split_command(template: &str) -> Vec<String> {
     args
 }
 
+/// The command that opens `target` (a file or URL) with the OS default application.
+fn system_open(target: &str) -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    let opener = vec!["xdg-open".to_string(), target.to_string()];
+    #[cfg(target_os = "macos")]
+    let opener = vec!["open".to_string(), target.to_string()];
+    #[cfg(target_os = "windows")]
+    let opener = vec![
+        "cmd".into(),
+        "/C".into(),
+        "start".into(),
+        String::new(),
+        target.to_string(),
+    ];
+    opener
+}
+
+/// Opens the project's page (`repository` in Cargo.toml) in the browser. Takes no URL, so
+/// the page can't ask the app to open arbitrary ones.
+#[tauri::command]
+fn open_repo() -> Result<(), String> {
+    let args = system_open(env!("CARGO_PKG_REPOSITORY"));
+    let (program, rest) = args.split_first().ok_or("no opener")?;
+    std::process::Command::new(program)
+        .args(rest)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("couldn't run `{program}`: {e}"))
+}
+
 /// Opens a source file in the user's editor: the Settings template (docs/EDITORS.md) with
 /// `{file}`, `{line}`, `{col}` substituted per argument, or the OS default application.
 #[tauri::command]
 fn open_in_editor(path: String, line: u32, col: u32, template: String) -> Result<(), String> {
     let args: Vec<String> = if template.trim().is_empty() {
-        #[cfg(target_os = "linux")]
-        let opener = vec!["xdg-open".to_string(), path.clone()];
-        #[cfg(target_os = "macos")]
-        let opener = vec!["open".to_string(), path.clone()];
-        #[cfg(target_os = "windows")]
-        let opener = vec![
-            "cmd".into(),
-            "/C".into(),
-            "start".into(),
-            String::new(),
-            path.clone(),
-        ];
-        opener
+        system_open(&path)
     } else {
         split_command(&template)
             .into_iter()
@@ -246,6 +264,7 @@ fn main() {
             watch::watch_folder,
             watch::unwatch_folder,
             open_in_editor,
+            open_repo,
             ssh::ssh_connect,
             ssh::ssh_fetch,
             ssh::ssh_device_config,

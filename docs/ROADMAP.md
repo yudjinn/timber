@@ -112,4 +112,6 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] First run on GitHub: push, then check CI (the first Windows build and test run is the first time the Windows-only code is compiled)
 - [ ] Cloudflare: add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (optionally `CLOUDFLARE_WORKER_NAME`), then run **Deploy web** once
 - [ ] First release: tag `v0.1.0`, check the draft
-- Later: macOS builds, signing, arm64, an in-app updater
+- [x] Before publishing (D-040, D-041): MIT `LICENSE` and licence fields, `SECURITY.md`, history checked for secrets and personal paths, Content-Security-Policy with tests, GitHub link in the toolbar
+- [ ] Make the repo public; turn on private vulnerability reporting (Settings → Security)
+- Later: macOS builds (if asked for), signing, arm64, an in-app updater

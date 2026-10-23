@@ -623,11 +623,14 @@ timber/
   crates/timber-core/        # tree model, DTB, DTS compiler, overlays, diff, kbuild, live
   crates/timber-ui/          # Leptos UI (wasm): index.html, style.css, _headers, src/
   crates/timber-desktop/     # Tauri v2: tauri.conf.json, capabilities/, src/ (files, watch, ssh)
+  crates/timber-csp/         # build step: the Content-Security-Policy <meta> (D-041)
   tests/ui/                  # Playwright tests of the web build
   .github/workflows/         # ci.yml, golden.yml, release.yml, web.yml
   wrangler.jsonc             # the web build on Cloudflare Workers (static assets)
   .github/scripts/           # fetch-kernel.sh, check-version.sh
   docs/
+  LICENSE                    # MIT (D-040)
+  SECURITY.md                # private vulnerability reports; what Timber promises
 ```
 
 **Dev**
@@ -645,6 +648,8 @@ timber/
 - `tauri-action` builds **Linux** (AppImage, .deb, on Ubuntu 22.04 for older glibc) and **Windows** (.msi, NSIS .exe) into a **draft** GitHub Release. Builds are **unsigned**. No macOS builds for now.
 - **Web** ([D-039](DECISIONS.md)): `trunk build --release` deployed to **Cloudflare Workers** as static assets (`wrangler.jsonc`, no Worker script), by `web.yml`. `_headers` sets the D-036 caching. It can also be run by hand to deploy without releasing.
 - No in-app updater for now.
+
+**Privacy** ([D-041](DECISIONS.md)): trunk's post-build hook runs `crates/timber-csp`, which writes a Content-Security-Policy `<meta>` into the built page. The page can only connect to its own origin, load images from itself or `data:`/`blob:` URLs, and never submit forms. Scripts are allowed by the hash of trunk's startup script (`'unsafe-inline'` only under `trunk serve`), and the desktop build also allows Tauri's IPC. Cloudflare adds `frame-ancestors 'none'`, `nosniff` and `no-referrer`.
 
 **Versions:** Tauri 2.12, Leptos 0.8, russh 0.64, trunk 0.22, Playwright 1.55.
 

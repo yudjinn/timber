@@ -212,6 +212,10 @@ kbd {
   .toolbar { flex-wrap: wrap; row-gap: 8px; }
   .toolbar > .doc-name { display: none; }
 }
+.brand-wrap { display: flex; align-items: center; gap: 2px; }
+.repo-link { display: inline-flex; padding: 5px; border-radius: 6px; color: var(--muted); }
+.repo-link:hover { color: var(--text); background: var(--surface-2); }
+.repo-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .brand { font-weight: 700; letter-spacing: -0.02em; font-size: 16px; padding-right: 4px; }
 .toolbar-group { display: flex; gap: 6px; align-items: center; }
 .spacer { flex: 1; }

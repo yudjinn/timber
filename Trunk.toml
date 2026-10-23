@@ -9,3 +9,10 @@ open = false
 # Cache, but check with the server on every load (an unchanged file is a 304), so the
 # desktop webview never runs an old build (D-036).
 headers = { "Cache-Control" = "no-cache" }
+
+# Writes the Content-Security-Policy into the built page (crates/timber-csp, D-041).
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "--quiet", "-p", "timber-csp"]
+

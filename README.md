@@ -6,6 +6,8 @@ With source folders added, a DTB is matched to the board it was built from, so e
 
 Status and plans live in [`docs/`](docs/README.md): design, decision log, and roadmap.
 
+**Your files stay on your computer.** The web build reads files inside the page, and its Content-Security-Policy stops the page from connecting anywhere but its own origin. The desktop app works from disk and talks only to the devices you connect to. See [SECURITY.md](SECURITY.md).
+
 ## Running
 
 Requirements: Rust (stable, edition 2024), the `wasm32-unknown-unknown` target, and [trunk](https://trunkrs.dev).
@@ -85,4 +87,8 @@ To release:
 **The builds are unsigned:**
 - **Windows:** SmartScreen warns on first run; choose *More info* → *Run anyway*.
 - **Linux:** `chmod +x Timber_*.AppImage` before running it. Or install the .deb with `sudo apt install ./timber_*.deb`.
+
+## License
+
+[MIT](LICENSE). Timber reads Linux kernel sources at runtime and in its tests, but none are included in this repository.
 

@@ -459,3 +459,8 @@ pub async fn ssh_trust_host(key: &HostKey) -> Result<(), String> {
     .await
     .map(|_| ())
 }
+
+/// Opens the project page in the system browser (links can't leave the app's window).
+pub async fn open_repo() {
+    let _ = invoke("open_repo", object(&[])).await;
+}

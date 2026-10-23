@@ -27,6 +27,8 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Jacob Rodgers",
     "shortDescription": "Device tree viewer",
     "icon": [
       "icons/32x32.png",

@@ -318,7 +318,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Why:** You asked for caching that notices when it's out of date. The desktop webview had kept serving an old build from its cache. Reloading the web build loses open files, which a browser can't re-read without asking, so it asks rather than forcing it.
 
 ## D-037 · CI on Linux and Windows, private repo
-- **Status:** Accepted · 2026-10-23
+- **Status:** Accepted · 2026-10-23. The repo going public (D-040) removes the minutes limit; the rest stands.
 - **Decision:**
   - The repo stays private for now.
   - Every push to `main` and every pull request runs format, clippy and `cargo test` on Ubuntu and Windows, plus the Playwright suite on Ubuntu with the kernel-backed tests.
@@ -343,3 +343,30 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Caching (D-036): Workers already serves assets as "cache, revalidate every time", which suits the page. `_headers` caches the hashed build files for a year as immutable. `.assetsignore` keeps trunk's lock file out.
   - Workers limits a single asset to 25 MiB. The release wasm is about 1.5 MB, but a debug build (about 48 MB) can't be deployed.
 - **Why:** You chose Cloudflare, and Workers static assets is its current path for static sites; Pages is no longer where new features go. Unlike GitHub Pages, it supports custom headers and works with a private repo.
+
+## D-040 · Open source under MIT
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - Timber is published under the MIT licence (`LICENSE`; `license = "MIT"` for every crate, the UI tests and the desktop bundle).
+  - Before publishing, the history was checked: no keys, tokens, local paths or large files. The commit identity is a coding address, in metadata only.
+  - Vulnerabilities are reported privately through GitHub (`SECURITY.md`).
+  - macOS builds still only if asked for.
+- **Why:** People will open confidential BSPs and device trees in it. Being able to read the source, build it themselves and host it internally is what makes that trustworthy. You don't plan to charge for it, so a permissive licence gets the most use. The test fixtures were written for Timber, and no kernel sources are included (D-014).
+
+## D-041 · A strict Content-Security-Policy
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - A post-build step (`crates/timber-csp`, run by trunk) writes a CSP `<meta>` into the built page:
+    - `default-src 'none'`
+    - `connect-src 'self'`
+    - `img-src 'self' data: blob:`
+    - `form-action 'none'`
+    - `base-uri 'none'`
+    - `style-src 'self' 'unsafe-inline'` (Leptos sets style attributes)
+    - `script-src 'self' 'wasm-unsafe-eval'` plus the SHA-256 hash of trunk's inline startup script, which changes with each build.
+  - Under `trunk serve`, the live-reload script gets `'unsafe-inline'`, and the local WebSocket is allowed. Trunk fills that script's address in as it serves the page, so it can't be hashed in advance.
+  - The desktop build (Tauri sets `TAURI_ENV_PLATFORM`) also allows Tauri's IPC: `ipc:` and `http://ipc.localhost`.
+  - Cloudflare also sends `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` (`_headers`); `frame-ancestors` only works as a header.
+  - `tests/ui/specs/csp.spec.js` checks that fetch, images, beacons, WebSockets and forms to other origins are blocked. Every other spec runs under the policy too, and a violation fails it.
+- **Why:** "Nothing is uploaded" becomes something the browser enforces, and anyone can check it from the page, without reading the source. A meta tag works everywhere the page runs (Cloudflare, the desktop app, the test server); a header would only cover one host. A CSP can't stop the page from navigating itself to another site, so it narrows the ways out rather than closing every one. Code review covers the rest.
+

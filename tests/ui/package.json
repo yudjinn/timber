@@ -1,6 +1,7 @@
 {
   "name": "timber-ui-tests",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "End-to-end tests of the Timber web build in headless Chromium",
   "scripts": {
