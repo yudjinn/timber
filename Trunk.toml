@@ -6,3 +6,6 @@ dist = "dist"
 addresses = ["127.0.0.1"]
 port = 8080
 open = false
+# The desktop webview (WebKitGTK) caches aggressively; without this, `cargo tauri dev` can
+# show an old build.
+headers = { "Cache-Control" = "no-store" }
