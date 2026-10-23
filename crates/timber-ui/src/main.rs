@@ -22,6 +22,7 @@ mod state;
 mod summary;
 mod tauri;
 mod toolbar;
+mod update;
 mod util;
 
 fn main() {

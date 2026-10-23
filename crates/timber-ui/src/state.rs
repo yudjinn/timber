@@ -323,6 +323,8 @@ pub struct AppState {
     pub summary_open: RwSignal<bool>,
     /// SSH: the connect dialog and the live device.
     pub ssh: crate::ssh::SshState,
+    /// A newer build of the UI is available (D-036).
+    pub update: crate::update::UpdateState,
     pub capabilities: Capabilities,
 }
 
@@ -357,6 +359,7 @@ impl AppState {
             diff_only: RwSignal::new(false),
             summary_open: RwSignal::new(false),
             ssh: crate::ssh::SshState::new(),
+            update: crate::update::UpdateState::new(),
             capabilities,
         }
     }

@@ -125,6 +125,7 @@ trait Backend {
 
 **Development:**
 - `cargo tauri dev` (from `crates/timber-desktop`) runs `trunk serve` from the repo root and loads `http://127.0.0.1:8080`.
+- **Newer builds** ([D-036](DECISIONS.md)): `trunk serve` sends `Cache-Control: no-cache`, and the app reloads itself when the server has a newer build than the one it's running. The web build asks first (**Reload** / **Later**, with an **Update available** badge after Later).
 - `cargo tauri build` bundles a release with `trunk build --release` output.
 
 

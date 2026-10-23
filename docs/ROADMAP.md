@@ -106,4 +106,4 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 ## M7 · Packaging
 - [ ] CI: `cargo test`, clippy, and the Playwright tests in `tests/ui`
 - [ ] GitHub Actions release matrix (Linux AppImage/deb, Windows msi/exe, macOS dmg)
-- [ ] Static web deploy
+- [ ] Static web deploy, with `no-cache` for `index.html` and long-lived caching for the hashed files (D-036)

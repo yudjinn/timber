@@ -307,3 +307,13 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 - **Decision:** The summary lists changed nodes (with a table of differing properties), nodes only in A, and nodes only in B. **Copy as Markdown** puts it on the clipboard.
 - **Why:** You asked for Markdown. It pastes into bug trackers, pull requests and chat, and still reads as plain text.
 
+## D-036 · Cached UI, checked for newer builds
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - **Caching:** build files carry a content hash in their names and are cached for good. The page (`index.html`) is cached but checked with the server on every load (`Cache-Control: no-cache`). `trunk serve` can only send one header, so in dev every file is checked; an unchanged one is a 304.
+  - **The app checks itself:** it compares the wasm it's running with the one the server's page references now.
+    - **Desktop, dev mode** (UI from `trunk serve`): reloads straight away, once per new build.
+    - **Desktop, release:** the UI is inside the binary, so there's nothing to check.
+    - **Web:** checks on load, when the window regains focus, and every 15 minutes. A newer build shows "A new version of Timber is available" with **Reload** and **Later**. **Later** leaves a small **Update available** badge in the top left and stops checking until the next load.
+- **Why:** You asked for caching that notices when it's out of date. The desktop webview had kept serving an old build from its cache. Reloading the web build loses open files, which a browser can't re-read without asking, so it asks rather than forcing it.
+

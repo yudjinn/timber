@@ -51,6 +51,7 @@ pub fn App() -> impl IntoView {
     provide_context(state);
     provide_context(backend.clone());
     show_help_on_start(state);
+    crate::update::watch(state);
     if state.capabilities.desktop {
         let b = backend.clone();
         crate::tauri::on_folder_changed(move |path| {
@@ -240,6 +241,7 @@ pub fn App() -> impl IntoView {
             <HelpDialog />
             <BusyView />
             <ToastView />
+            <crate::update::UpdateNotice />
             <div class="drop-hint" aria-hidden="true">"Drop .dtb / .dts files to open"</div>
         </div>
     }

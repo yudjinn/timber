@@ -25,7 +25,15 @@ createServer(async (req, res) => {
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, { "content-type": types[extname(file)] || "application/octet-stream" }).end(body);
+    // As a deployment should: the page is checked on every load, hashed files are cached
+    // for good (D-036).
+    const hashed = /-[0-9a-f]{16}(_bg)?\.\w+$/.test(file);
+    res
+      .writeHead(200, {
+        "content-type": types[extname(file)] || "application/octet-stream",
+        "cache-control": hashed ? "public, max-age=31536000, immutable" : "no-cache",
+      })
+      .end(body);
   } catch {
     res.writeHead(404).end("not found (run `npm run build` to build dist/)");
   }
