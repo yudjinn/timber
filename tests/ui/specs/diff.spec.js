@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, needs, start, openFiles, goTo, nodeTitle, idle, panelText, readTree, useDirectoryPicker, writeFolder, addFolder } from "../helpers.js";
 
-const diffButton = (page) => page.locator(".toolbar button.diag").filter({ hasText: /differ from|Same as/ });
+const diffButton = (page) => page.locator(".toolbar button.diag .long").filter({ hasText: /differ from|Same as/ });
 
 async function compareWithFile(page, file) {
   await page.getByRole("button", { name: /^Sources/ }).click();

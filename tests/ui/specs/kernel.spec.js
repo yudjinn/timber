@@ -4,7 +4,7 @@
 
 import { test, expect, needs, start, openFiles, goTo, idle, panelText, readTree, useDirectoryPicker, writeFolder, addFolder } from "../helpers.js";
 
-const diffButton = (page) => page.locator(".toolbar button.diag", { hasText: "differ from source" });
+const diffButton = (page) => page.locator(".toolbar button.diag .long", { hasText: "differ from source" });
 
 test("a device DTB is matched to its board and its differences are flagged", async ({ page }) => {
   const k = needs("kernel");

@@ -181,7 +181,7 @@ test("take a snapshot, then see what changed since; compare with previous", asyn
   await connect(page, "root@rock5b");
   await expect(page.locator(".live-bar")).toBeVisible();
   await idle(page);
-  const diff = page.locator(".toolbar button.diag").filter({ hasText: /differ from|Same as/ });
+  const diff = page.locator(".toolbar button.diag .long").filter({ hasText: /differ from|Same as/ });
 
   await page.locator(".live-bar").getByRole("button", { name: "Take snapshot" }).click();
   await idle(page);

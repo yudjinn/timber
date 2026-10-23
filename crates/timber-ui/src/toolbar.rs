@@ -236,10 +236,13 @@ pub fn Toolbar() -> impl IntoView {
                             class="diag"
                             class:same=total == 0
                             aria-pressed=move || state.summary_open.get().to_string()
+                            aria-label=if total == 0 { format!("Same as {b}") } else { format!("{total} differ from {b}") }
                             title=format!("Differences from {b}: {}. Click for the summary.", diff.summary())
                             on:click=move |_| state.summary_open.update(|o| *o = !*o)
                         >
-                            {if total == 0 { format!("Same as {b}") } else { format!("{total} differ from {b}") }}
+                            // The short form is for narrow windows (style.css).
+                            <span class="long">{if total == 0 { format!("Same as {b}") } else { format!("{total} differ from {b}") }}</span>
+                            <span class="short">{if total == 0 { "Same".to_string() } else { format!("{total} Δ") }}</span>
                         </button>
                     })
                 }))}

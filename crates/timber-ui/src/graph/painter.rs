@@ -6,7 +6,9 @@ use std::fmt::Write;
 use wasm_bindgen::JsValue;
 use web_sys::CanvasRenderingContext2d;
 
-const FONT_FAMILY: &str = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+/// Named UI fonts rather than `system-ui`, which follows the desktop's font setting (on
+/// Linux, that can be a programming font, which is much wider). Matches `--sans` in style.css.
+const FONT_FAMILY: &str = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Font {

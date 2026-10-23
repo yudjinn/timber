@@ -21,7 +21,9 @@
   --error-bg: rgba(192, 57, 43, 0.1);
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Named fonts, not system-ui: that follows the desktop's font setting, which on Linux can
+     be a programming font (much wider). Keep in sync with FONT_FAMILY in graph/painter.rs. */
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -188,9 +190,27 @@ kbd {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  flex-wrap: wrap;
+  /* One row on desktop widths: the search box and file name shrink, buttons never wrap or
+     get cut off. Phones wrap (below). */
+  flex-wrap: nowrap;
+  min-width: 0;
   position: relative;
   z-index: 20;
+}
+.toolbar > * { flex: none; }
+.toolbar > .search { flex: 1 1 320px; min-width: 160px; }
+.toolbar > .spacer { flex: 1 1 0; min-width: 0; }
+.toolbar > .doc-name { flex: 0 1 auto; min-width: 0; }
+.toolbar button { white-space: nowrap; }
+.toolbar button.diag .short { display: none; }
+@media (max-width: 1100px) {
+  .toolbar button.diag .long { display: none; }
+  .toolbar button.diag .short { display: inline; }
+}
+/* Too narrow for one row: wrap rather than run off the edge. */
+@media (max-width: 1000px) {
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .toolbar > .doc-name { display: none; }
 }
 .brand { font-weight: 700; letter-spacing: -0.02em; font-size: 16px; padding-right: 4px; }
 .toolbar-group { display: flex; gap: 6px; align-items: center; }
@@ -238,7 +258,8 @@ button.diag.error { border-color: var(--error-bg); background: var(--error-bg); 
 @media (max-width: 760px) {
   .workspace { grid-template-columns: 1fr; grid-template-rows: 58vh auto; }
   .panel { border-left: 0; border-top: 1px solid var(--border); }
-  .search { order: 10; flex-basis: 100%; max-width: none; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar > .search { order: 10; flex-basis: 100%; max-width: none; }
   .doc-name { display: none; }
 }
 
