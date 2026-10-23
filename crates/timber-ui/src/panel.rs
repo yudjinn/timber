@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 use timber_core::bsp;
+use timber_core::diff::{Mark, Token, space_between, value_diff};
 use timber_core::format::{Seg, format_prop, format_prop_text};
 use timber_core::source_map::LocKind;
 use timber_core::source_map::SourceMap;
@@ -11,7 +12,7 @@ use timber_core::{NodeId, Tree};
 
 use crate::actions::add_folder;
 use crate::backend::BackendHandle;
-use crate::doc::{DiffMark, Document};
+use crate::doc::Document;
 use crate::kind::Kind;
 use crate::state::{AppState, SourceLocation};
 
@@ -21,6 +22,7 @@ pub fn NodePanel() -> impl IntoView {
     move || {
         let doc = state.doc.get()?;
         let view = match state.selected.get() {
+            Some(id) if doc.is_ghost(id) => ghost_view(state, doc, id).into_any(),
             Some(id) if id < doc.tree.len() => node_view(state, doc, id).into_any(),
             _ => summary_view(state, doc).into_any(),
         };
@@ -51,16 +53,57 @@ fn status_chip(doc: &Document, id: NodeId) -> impl IntoView + use<> {
 
 fn diff_chip(doc: &Document, id: NodeId) -> impl IntoView + use<> {
     let d = doc.diff.as_ref()?;
+    let b = d.b_name();
     let text = match d.marks[id] {
-        DiffMark::Differs(k) => format!(
-            "{k} difference{} from source",
-            if k == 1 { "" } else { "s" }
-        ),
-        DiffMark::NotInSource => "not in source".to_string(),
-        DiffMark::Same if d.below[id] > 0 => format!("{} differ below", d.below[id]),
-        DiffMark::Same => return None,
+        Mark::Changed(k) => format!("{k} difference{} from {b}", if k == 1 { "" } else { "s" }),
+        Mark::OnlyA => format!("not in {b}"),
+        Mark::OnlyB => format!("only in {b}"),
+        Mark::Same if d.below[id] > 0 => format!("{} differ below", d.below[id]),
+        Mark::Same => return None,
     };
     Some(view! { <span class="chip warn">{text}</span> })
+}
+
+/// A value's tokens, with the ones that differ from the other side highlighted.
+fn tokens_view(tokens: Vec<Token>, present: bool) -> AnyView {
+    if !present {
+        return view! { <span class="muted">"(not set)"</span> }.into_any();
+    }
+    if tokens.is_empty() {
+        return view! { <span class="bool">"true"</span> }.into_any();
+    }
+    let mut prev: Option<String> = None;
+    let mut out: Vec<AnyView> = Vec::new();
+    for t in tokens {
+        if prev.as_deref().is_some_and(|p| space_between(p, &t.text)) {
+            out.push(" ".into_any());
+        }
+        prev = Some(t.text.clone());
+        out.push(view! { <span class:tok-changed=t.changed>{t.text}</span> }.into_any());
+    }
+    out.collect_view().into_any()
+}
+
+/// A property of this tree and of the one compared with, one above the other.
+fn compare_rows(doc: &Document, id: NodeId, name: &str) -> Option<AnyView> {
+    let d = doc.diff.as_ref()?;
+    let bid = d.b_node(id)?;
+    let pa = doc.tree.node(id).props.iter().find(|p| p.name == name);
+    let pb = d.b.node(bid).props.iter().find(|p| p.name == name);
+    let (ta, tb) = value_diff(&doc.tree, id, pa, &d.b, bid, pb);
+    let (a_name, b_name) = (doc.short_name().to_string(), d.against.clone());
+    let (a_title, b_title) = (a_name.clone(), b_name.clone());
+    Some(
+        view! {
+            <div class="prop-compare">
+                <div class="cmp-side" title=a_title>{a_name}</div>
+                <div class="cmp-val">{tokens_view(ta, pa.is_some())}</div>
+                <div class="cmp-side" title=b_title>{b_name}</div>
+                <div class="cmp-val">{tokens_view(tb, pb.is_some())}</div>
+            </div>
+        }
+        .into_any(),
+    )
 }
 
 fn loc_text(sm: &SourceMap, kind: LocKind, file: u32, line: u32) -> String {
@@ -214,11 +257,13 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
         })
         .collect_view();
 
-    let link = doc.link.as_ref();
-    let source_node = link.and_then(|l| l.map.get(id).copied().flatten());
-    let comparison = link
-        .zip(source_node)
-        .map(|(l, sid)| bsp::compare_node(tree, id, &l.tree, sid));
+    let cmp = doc.diff.as_ref();
+    let b_node = cmp.and_then(|d| d.b_node(id));
+    let comparison = cmp
+        .zip(b_node)
+        .map(|(d, bid)| bsp::compare_node(tree, id, &d.b, bid));
+    let b_name = cmp.map(|d| d.b_name().to_string()).unwrap_or_default();
+    let from_source_cmp = cmp.is_some_and(|d| d.from_source);
     let path_str = tree.path(id);
 
     // DTBs built without -@ borrow labels from the linked source (see Document::relinked).
@@ -265,29 +310,22 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
             let sources = (!links.is_empty()).then_some(links);
             let differs = comparison.as_ref().is_some_and(|c| c.differs.contains(&p.name));
             let only_here = comparison.as_ref().is_some_and(|c| c.only_a.contains(&p.name));
-            let source_value = differs
-                .then(|| {
-                    let (l, sid) = link.zip(source_node)?;
-                    let q = l.tree.node(sid).props.iter().find(|q| q.name == p.name)?;
-                    Some(format_prop_text(&l.tree, sid, q))
-                })
-                .flatten();
-            let bootloader = (differs || only_here) && bsp::likely_bootloader_patched(&path_str, &p.name);
+            let bootloader =
+                from_source_cmp && (differs || only_here) && bsp::likely_bootloader_patched(&path_str, &p.name);
+            let side_by_side = if differs { compare_rows(&doc, id, &p.name) } else { None };
+            let value = match side_by_side {
+                Some(rows) => rows,
+                None => view! { <div class="prop-value">{value}</div> }.into_any(),
+            };
             view! {
                 <div class="prop" class:differs=differs || only_here>
                     <div class="prop-name">
                         {p.name.clone()}
-                        {differs.then(|| view! { <span class="chip warn">"differs from source"</span> })}
-                        {only_here.then(|| view! { <span class="chip warn">"not in source"</span> })}
+                        {differs.then(|| view! { <span class="chip warn">{format!("differs from {b_name}")}</span> })}
+                        {only_here.then(|| view! { <span class="chip warn">{format!("not in {b_name}")}</span> })}
                         {bootloader.then(|| view! { <span class="chip">"likely set by U-Boot"</span> })}
                     </div>
-                    <div class="prop-value">{value}</div>
-                    {source_value.map(|v| view! {
-                        <div class="prop-source-value">
-                            <span class="muted">"source: "</span>
-                            {if v.is_empty() { "true".to_string() } else { v }}
-                        </div>
-                    })}
+                    {value}
                     {sources.map(|s| view! { <div class="prop-src">{s}</div> })}
                 </div>
             }
@@ -326,16 +364,16 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
         .find(|m| m.node == id && m.created)
         .map(|m| m.overlay.clone());
 
-    // Properties the source sets that the DTB doesn't have.
-    let only_in_source = link.zip(source_node).zip(comparison.as_ref()).and_then(|((l, sid), c)| {
+    // Properties the other tree sets that this one doesn't have.
+    let only_in_b = cmp.zip(b_node).zip(comparison.as_ref()).and_then(|((d, bid), c)| {
         (!c.only_b.is_empty()).then(|| {
             c.only_b
                 .iter()
                 .filter_map(|name| {
-                    let q = l.tree.node(sid).props.iter().find(|q| &q.name == name)?;
-                    let v = format_prop_text(&l.tree, sid, q);
+                    let q = d.b.node(bid).props.iter().find(|q| &q.name == name)?;
+                    let v = format_prop_text(&d.b, bid, q);
                     Some(view! {
-                        <div class="prop">
+                        <div class="prop differs">
                             <div class="prop-name">{name.clone()}</div>
                             <div class="prop-value muted">{if v.is_empty() { "true".to_string() } else { v }}</div>
                         </div>
@@ -394,12 +432,19 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                 <h3>{format!("Properties ({})", node.props.len())}</h3>
                 <div class="props">{props}</div>
             </section>
-            {only_in_source.map(|rows| view! {
-                <section>
-                    <h3>"Only in source"</h3>
-                    <p class="muted small">"Set by the source but missing from this DTB."</p>
-                    <div class="props">{rows}</div>
-                </section>
+            {only_in_b.map(|rows| {
+                let (heading, note) = if from_source_cmp {
+                    ("Only in source".to_string(), "Set by the source but missing from this DTB.".to_string())
+                } else {
+                    (format!("Only in {b_name}"), format!("Set in {b_name} but not here."))
+                };
+                view! {
+                    <section>
+                        <h3>{heading}</h3>
+                        <p class="muted small">{note}</p>
+                        <div class="props">{rows}</div>
+                    </section>
+                }
             })}
             {has_refs.then(|| view! {
                 <section>
@@ -413,6 +458,88 @@ fn node_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
                     <ul class="plain mono">{s}</ul>
                 </section>
             })}
+        </div>
+    }
+}
+
+/// A node only in the tree compared with (D-033): its properties come from that tree.
+fn ghost_view(state: AppState, doc: Arc<Document>, id: NodeId) -> impl IntoView {
+    let d = doc.diff.as_ref().expect("ghosts come from a comparison");
+    let bid = d.b_node(id).expect("ghosts map to the other tree");
+    let b = &d.b;
+    let dark = state.dark.get_untracked();
+    let kind = doc.kinds[id];
+    let tree = &doc.tree;
+    let crumbs = tree
+        .ancestors(id)
+        .into_iter()
+        .map(|a| {
+            let text = if a == Tree::ROOT {
+                "/".to_string()
+            } else {
+                tree.node(a).name.clone()
+            };
+            let link = node_link(state, &doc, a, text);
+            view! { <span class="crumb">{link}</span> }
+        })
+        .collect_view();
+    let labels = tree
+        .node(id)
+        .labels
+        .iter()
+        .map(|l| view! { <span class="chip label">{format!("&{l}")}</span> })
+        .collect_view();
+    let props = b
+        .node(bid)
+        .props
+        .iter()
+        .map(|p| {
+            let v = format_prop_text(b, bid, p);
+            view! {
+                <div class="prop">
+                    <div class="prop-name">{p.name.clone()}</div>
+                    <div class="prop-value">{if v.is_empty() { "true".to_string() } else { v }}</div>
+                </div>
+            }
+        })
+        .collect_view();
+    let n_props = b.node(bid).props.len();
+    let children = tree.node(id).children.len();
+    let where_ = d.b_name().to_string();
+    let path = tree.path(id);
+    let graph = state.graph;
+    let doc2 = doc.clone();
+    let doc3 = doc.clone();
+    view! {
+        <div class="panel-inner">
+            <header class="node-head">
+                <span class="dot big ghost" style=format!("border-color: {}", kind.color(dark))></span>
+                <div>
+                    <h2 class="node-title">{tree.node(id).name.clone()}</h2>
+                    <div class="node-kind">{kind.label()}{diff_chip(&doc, id)}</div>
+                </div>
+            </header>
+            <nav class="crumbs" aria-label="Path">{crumbs}</nav>
+            <div class="chips">{labels}</div>
+            <div class="notice warn">{format!("Only in {where_}: this node isn't in the tree shown.")}</div>
+            <div class="actions">
+                <button
+                    disabled=children == 0
+                    on:click=move |_| {
+                        let kids = doc2.tree.node(id).children.clone();
+                        graph.add_children(&doc2.tree, id, &kids);
+                    }
+                >
+                    {format!("Expand {children}")}
+                </button>
+                <button on:click=move |_| { graph.collapse(&doc3.tree, id); }>"Collapse"</button>
+                <button on:click=move |_| state.go_to(id)>"Focus"</button>
+                <button on:click=move |_| copy_text(state, path.clone())>"Copy path"</button>
+            </div>
+            <section>
+                <h3>{format!("Properties in {where_} ({n_props})")}</h3>
+                <div class="props">{props}</div>
+            </section>
         </div>
     }
 }
@@ -440,7 +567,7 @@ fn summary_view(state: AppState, doc: Arc<Document>) -> impl IntoView {
     view! {
         <div class="panel-inner">
             <h2 class="node-title">{doc.name.clone()}</h2>
-            <p class="muted">{format!("{} nodes", doc.tree.len())}</p>
+            <p class="muted">{format!("{} nodes", doc.node_count())}</p>
             <section>
                 <h3>"Node kinds"</h3>
                 <ul class="plain">{rows}</ul>

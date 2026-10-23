@@ -277,3 +277,33 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - The view is only rebuilt when the device's tree actually changed, keeping the web as it is.
   - Switching to another tree disconnects.
 
+## D-032 · One comparison: "from source" by default, replaceable
+- **Status:** Accepted · 2026-10-23. Generalises D-023.
+- **Decision:**
+  - The tree shown (A) is compared with one other tree (B). When a DTB is linked to a source board, B is that board by default ("differences from source").
+  - **Compare with…** replaces B with another DTB, a board from the sources, or a snapshot of a live device. **Back to source** returns to the default.
+  - The choice stays when the tree shown changes, so a series of DTBs can be checked against one reference.
+  - Everything that shows differences (markers, pills, the toolbar count, the panel) uses whichever B is active.
+- **Why:** You asked for one diff concept with "from source" as the default. Two diff systems on screen at once would compete for the same markers.
+
+## D-033 · Nodes only in B are drawn as ghosts
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - Nodes that exist only in B are grafted onto the web as dashed **ghost** nodes, where they would sit in A. They can be added, searched and selected like other nodes.
+  - Ghosts carry no properties of their own; the panel shows B's.
+  - Ghosts are never exported to `.dts`, and the node count excludes them.
+- **Why:** A removed subtree is a difference too, and it should be visible in place rather than only in a list.
+
+## D-034 · Live snapshots, and comparing with the previous read
+- **Status:** Accepted · 2026-10-23
+- **Decision:**
+  - **Take snapshot** on the live bar freezes the device's current tree and starts comparing with it, so later refreshes show what changed since (loading a module, applying an overlay at runtime).
+  - Snapshots stay listed under **Compare with** for the session.
+  - When a refresh finds the tree changed, the notice offers **Compare with previous**.
+- **Why:** You asked for both. Before/after on a running board is the main reason to diff live trees.
+
+## D-035 · The differences summary copies as Markdown
+- **Status:** Accepted · 2026-10-23
+- **Decision:** The summary lists changed nodes (with a table of differing properties), nodes only in A, and nodes only in B. **Copy as Markdown** puts it on the clipboard.
+- **Why:** You asked for Markdown. It pastes into bug trackers, pull requests and chat, and still reads as plain text.
+

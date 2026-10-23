@@ -170,7 +170,7 @@ pub fn export_image(
     let model = tree.prop_str(Tree::ROOT, "model").map(str::to_string);
     let shown = graph.sim.with_value(|s| s.nodes.len());
     // Generated nodes (`__symbols__`, `__local_fixups__`) aren't part of the hardware tree.
-    let total = (0..tree.len())
+    let total = (0..doc.node_count())
         .filter(|&id| !timber_core::bsp::is_generated(tree, id))
         .count();
     let mut subtitle = format!("{} · {shown} of {total} nodes", doc.short_name());
@@ -179,6 +179,9 @@ pub fn export_image(
             " · source {}",
             link.board.rsplit('/').next().unwrap_or(&link.board)
         ));
+    }
+    if let Some(d) = doc.diff.as_ref().filter(|d| !d.from_source) {
+        subtitle.push_str(&format!(" · compared with {}: {}", d.against, d.summary()));
     }
     let title = model.unwrap_or_else(|| doc.short_name().to_string());
 
@@ -270,13 +273,13 @@ pub fn export_tree(state: AppState, as_dtb: bool) -> Option<(String, &'static st
         (
             format!("{stem}.dtb"),
             "application/octet-stream",
-            dtb::write(&doc.tree),
+            dtb::write(&doc.own_tree()),
         )
     } else {
         (
             format!("{stem}.dts"),
             "text/plain",
-            format::to_dts(&doc.tree).into_bytes(),
+            format::to_dts(&doc.own_tree()).into_bytes(),
         )
     })
 }

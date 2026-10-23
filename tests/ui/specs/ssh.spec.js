@@ -116,7 +116,7 @@ test("refresh: no changes, then a changed tree keeps the selection; auto-refresh
   const before = await docTitle(page);
   await mock(page, () => (window.__mock.tree = "b"));
   await page.locator(".live-bar").getByRole("button", { name: "Refresh" }).click();
-  await expect(toast(page)).toHaveText("The device's tree changed; updated");
+  await expect(toast(page)).toContainText("The device's tree changed; updated");
   await idle(page);
   expect(await docTitle(page)).not.toBe(before);
   await expect.poll(() => nodeTitle(page)).toBe("pmic@20");
@@ -175,3 +175,34 @@ test("opening a file ends the live session", async ({ page }) => {
   await expect(page.locator(".live-bar")).toHaveCount(0);
   expect(await mock(page, () => window.__mock.disconnects)).toEqual([7]);
 });
+
+test("take a snapshot, then see what changed since; compare with previous", async ({ page }) => {
+  await mock(page, () => window.__mock.trusted.add("rock5b"));
+  await connect(page, "root@rock5b");
+  await expect(page.locator(".live-bar")).toBeVisible();
+  await idle(page);
+  const diff = page.locator(".toolbar button.diag").filter({ hasText: /differ from|Same as/ });
+
+  await page.locator(".live-bar").getByRole("button", { name: "Take snapshot" }).click();
+  await idle(page);
+  await expect(diff).toHaveText(/^Same as rock5b · snapshot \d\d:\d\d:\d\d$/);
+  await mock(page, () => (window.__mock.tree = "b"));
+  await page.locator(".live-bar").getByRole("button", { name: "Refresh" }).click();
+  await idle(page);
+  await expect(diff).toHaveText(/^\d+ differ from rock5b · snapshot/);
+  // Already comparing, so no "Compare with previous".
+  await expect(toast(page).getByRole("button")).toHaveCount(0);
+
+  // The snapshot is listed; stop comparing, then the next change offers the previous read.
+  await page.getByRole("button", { name: /^Sources/ }).click();
+  await expect(page.locator(".modal.sources ul.snapshots")).toContainText("rock5b · snapshot");
+  await page.locator(".modal.sources").getByRole("button", { name: "Stop comparing" }).click();
+  await idle(page);
+  await expect(diff).toHaveCount(0);
+  await mock(page, () => (window.__mock.tree = "a"));
+  await page.locator(".live-bar").getByRole("button", { name: "Refresh" }).click();
+  await toast(page).getByRole("button", { name: "Compare with previous" }).click();
+  await idle(page);
+  await expect(diff).toHaveText(/^\d+ differ from rock5b · before \d\d:\d\d:\d\d$/);
+});
+

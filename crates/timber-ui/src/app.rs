@@ -107,13 +107,14 @@ pub fn App() -> impl IntoView {
     // Toasts dismiss themselves.
     Effect::new(move |_| {
         if let Some(toast) = state.toast.get() {
+            let ms = if toast.action.is_some() { 9000 } else { 4500 };
             set_timeout(
                 move || {
                     if state.toast.get_untracked().as_ref() == Some(&toast) {
                         state.toast.set(None);
                     }
                 },
-                Duration::from_millis(4500),
+                Duration::from_millis(ms),
             );
         }
     });
@@ -158,9 +159,18 @@ pub fn App() -> impl IntoView {
             state.source_view.set(None);
             return;
         }
+        // Esc closes the differences summary after the popup.
+        if key == "Escape"
+            && state.popup.get_untracked().is_none()
+            && state.summary_open.get_untracked()
+        {
+            state.summary_open.set(false);
+            return;
+        }
         let Some(doc) = state.document() else { return };
         match key.as_str() {
             "f" | "F" => state.graph.fit(&doc.tree),
+            "d" | "D" if doc.diff.is_some() => state.diff_only.update(|o| *o = !*o),
             "Escape" => state.popup.set(None),
             "Delete" | "Backspace" => {
                 if let Some(id) = state.selected.get_untracked() {
@@ -220,6 +230,7 @@ pub fn App() -> impl IntoView {
                 </aside>
             </main>
             <Diagnostics />
+            <crate::summary::DiffSummary />
             <SourceDrawer />
             <SettingsDialog />
             <crate::ssh::ConnectDialog />
@@ -298,11 +309,15 @@ fn Legend() -> impl IntoView {
                 <summary>"Legend"</summary>
                 <ul>{items}</ul>
                 <p class="muted small">"Dimmed: status disabled · +N: hidden children · dashed: references"</p>
-                {doc.diff.is_some().then(|| view! {
-                    <p class="muted small">
-                        <span class="diff-pill">"Δ2"</span>" differs from source · "
-                        <span class="diff-pill">"new"</span>" not in source · amber +N: differences hidden below"
-                    </p>
+                {doc.diff.as_ref().map(|d| {
+                    let b = d.b_name().to_string();
+                    view! {
+                        <p class="muted small">
+                            <span class="diff-pill">"Δ2"</span>{format!(" differs from {b} · ")}
+                            <span class="diff-pill">"new"</span>{format!(" not in {b} · ")}
+                            <span class="diff-pill">"gone"</span>{format!(" only in {b} (dashed) · amber +N: differences hidden below")}
+                        </p>
+                    }
                 })}
             </details>
         })
@@ -407,6 +422,20 @@ fn ToastView() -> impl IntoView {
             view! {
                 <div class="toast" class:error=t.error role="status" on:click=move |_| state.toast.set(None)>
                     {t.message}
+                    {t.action.map(|a| {
+                        let label = a.label();
+                        view! {
+                            <button class="small toast-action" on:click=move |ev| {
+                                ev.stop_propagation();
+                                state.toast.set(None);
+                                match a.clone() {
+                                    crate::state::ToastAction::CompareWithPrevious { name, data } => {
+                                        crate::actions::compare_with(state, crate::state::CompareWith::Blob { name, data });
+                                    }
+                                }
+                            }>{label}</button>
+                        }
+                    })}
                 </div>
             }
         })

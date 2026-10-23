@@ -27,6 +27,10 @@ const GROUPS: &[(&str, &[(&str, &str)])] = &[
                 "Search nodes, labels, aliases, compatibles",
             ),
             ("F", "Fit the web to the window"),
+            (
+                "D",
+                "Only differences in the popup and search (when comparing)",
+            ),
             ("Esc", "Close the child popup"),
             ("Del", "Remove the selected node from the web"),
             ("?", "Show this help"),

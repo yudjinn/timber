@@ -119,7 +119,7 @@ trait Backend {
 **Command line:** `timber [FILE…] [--source DIR…] [--config FILE] [--ssh TARGET [--ssh-options OPTS] [--tree-path PATH]] [--smoke | --smoke-watch]`
 - Files and folders are loaded at startup.
 - `--ssh` connects at launch. If that needs you (a password, a new host key), the connect dialog opens with the problem shown.
-- `--smoke` prints a one-line summary of what loaded (sources, boards, live device, node count, matched board, differences) and exits.
+- `--smoke` prints a one-line summary of what loaded (sources, boards, live device, node count, matched board, differences: changed / not in source / only in source) and exits.
 - `--smoke-watch` also waits for a watched folder to change and reload, reports again, then exits.
 - These are the app's end-to-end tests.
 
@@ -374,21 +374,35 @@ The result is converted to a `Tree` (`timber_core::live`), then sent to the UI a
 
 ---
 
-## 7. Live vs source diff
+## 7. Comparing trees ([D-032](DECISIONS.md)…[D-035](DECISIONS.md))
 
-- Compare two documents: typically **live** (SSH) against **source** (folder + board), or any two DTBs.
-- **Matching:**
-  - Nodes match by full path.
-  - Properties match by name.
-  - Unit-address case is normalised; on a unique match `foo` equals `foo@0`.
-- **Phandle normalisation:** phandle numbers differ between two compilations. Before comparing, phandle cells in known reference properties are rewritten to the target node's path. That covers `clocks`, `interrupt-parent`, `*-gpios`, `pinctrl-N`, `*-supply`, and the rest of the format table in §9. Without this, nearly every reference would show as a false difference.
-- **Ignored by default** (toggle in the diff panel): `phandle` / `linux,phandle`, `__symbols__` / `__fixups__` / `__local_fixups__`, `/chosen` bootargs-like props, and the kernel's synthetic `name`.
-- **Result:** each node is one of *same*, *changed* (props differ), *only-in-A*, *only-in-B*; each property is *same*, *changed*, *added* or *removed*.
-- **UI:**
-  - A "Diff" toggle colours graph nodes by status. A legend shows counts.
-  - The node popup and search can filter to "changed only".
-  - The side panel shows A/B values side by side with byte-level highlights.
-  - Summary list: "12 nodes changed, 3 only on device, 41 disabled in source but okay live…" Each line is clickable and reveals the node in the web.
+**What's compared:** the tree shown (**A**) with one other tree (**B**):
+- **By default,** a DTB's linked source board ("differences from source", D-023).
+- **Compare with…** (Sources panel) replaces B with:
+  - another DTB/DTBO file
+  - a board from the sources, compiled the same way as when shown
+  - a snapshot of a live device (D-034)
+- **Back to source** returns to the default. The choice stays when the tree shown changes.
+
+**Matching** (`timber_core::diff`):
+- Nodes match by full path; names compare case-insensitively.
+- Properties match by name. `phandle` / `linux,phandle` are ignored, as are `__symbols__`, `__fixups__` and `__local_fixups__`.
+- **References compare by target path,** so two builds that numbered phandles differently still compare equal. Everything the formatter decodes as a reference counts (§9), as do `interrupt-parent` and the `*-gpios` / `*-supply` style properties.
+- **U-Boot's changes** (bootargs, MAC addresses) count like any other (D-023). The panel still notes "likely set by U-Boot" when comparing with source.
+
+**Result:**
+- Each node is *same*, *changed* (n properties differ, are missing or are extra), *only in A* or *only in B*.
+- Nodes only in B are grafted onto A's tree as **ghosts** (D-033), appended after A's nodes so A's node ids don't change. Ghosts have no properties; the panel reads B's. They're excluded from `.dts` export and from the node count.
+
+**Showing it:**
+- **Web and popup:** `Δn` pills on changed nodes, `new` on nodes only in A, dashed ghosts marked `gone` for nodes only in B. Hidden differences turn a collapsed node's badge amber.
+- **Only differences** (popup header, the summary, or `D`) limits the child popup and search to nodes with differences at or below them.
+- **Panel:** each differing property shows A and B side by side, with the differing cells, strings or bytes highlighted (a token-level LCS over the formatted values, references as paths). Properties only in B are listed under "Only in B".
+- **Toolbar:** "N differ from B" opens the **summary**. It lists changed nodes, nodes only in A and nodes only in B; each entry jumps to its node. It offers **Show all in the web** and **Copy as Markdown** (D-035).
+
+**Live devices** (D-034):
+- **Take snapshot** freezes the current tree and compares with it from then on.
+- A refresh that finds changes offers **Compare with previous**.
 
 ---
 

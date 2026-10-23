@@ -35,9 +35,13 @@ fn GlobalSearch() -> impl IntoView {
             return Vec::new();
         };
         let dark = state.dark.get();
+        // With "Only differences", only nodes that differ themselves.
+        let only = state.diff_only.get().then_some(doc.diff.as_ref()).flatten();
         doc.search
-            .search(&doc.tree, &q, 40)
+            .search(&doc.tree, &q, if only.is_some() { 2000 } else { 40 })
             .into_iter()
+            .filter(|hit| only.is_none_or(|d| d.is_marked(hit.id)))
+            .take(40)
             .map(|hit| ResultRow {
                 id: hit.id,
                 name: doc.tree.node(hit.id).name.clone(),
@@ -216,7 +220,7 @@ pub fn Toolbar() -> impl IntoView {
                 </div>
                 <div class="spacer"></div>
                 {move || state.doc.with(|d| d.as_ref().map(|d| {
-                    let title = format!("{} · {} nodes", d.name, d.tree.len());
+                    let title = format!("{} · {} nodes", d.name, d.node_count());
                     view! {
                         <span class="doc-name" title=title>
                             {d.short_name().to_string()}
@@ -225,14 +229,17 @@ pub fn Toolbar() -> impl IntoView {
                     }
                 }))}
                 {move || state.doc.with(|d| d.as_ref().and_then(|d| d.diff.as_ref()).map(|diff| {
-                    let total = diff.differing + diff.not_in_source;
-                    (total > 0).then(|| view! {
+                    let total = diff.total();
+                    let b = diff.b_name().to_string();
+                    (total > 0 || !diff.from_source).then(|| view! {
                         <button
                             class="diag"
-                            title="Add every node that differs from source to the web"
-                            on:click=move |_| crate::actions::show_differences(state)
+                            class:same=total == 0
+                            aria-pressed=move || state.summary_open.get().to_string()
+                            title=format!("Differences from {b}: {}. Click for the summary.", diff.summary())
+                            on:click=move |_| state.summary_open.update(|o| *o = !*o)
                         >
-                            {format!("{total} differ from source")}
+                            {if total == 0 { format!("Same as {b}") } else { format!("{total} differ from {b}") }}
                         </button>
                     })
                 }))}

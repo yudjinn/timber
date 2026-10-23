@@ -11,7 +11,7 @@ use wasm_bindgen::{JsCast, JsValue};
 
 use crate::actions;
 use crate::backend::{BackendHandle, get};
-use crate::state::AppState;
+use crate::state::{AppState, CompareWith, Toast, ToastAction};
 use crate::tauri::{self, HostKey, SshFailure, SshRequest, SshTree};
 
 const RECENT_KEY: &str = "timber.ssh.recent";
@@ -201,6 +201,12 @@ fn apply(state: AppState, live: LiveDevice, tree: SshTree, manual: bool) {
         return;
     }
     let data = Arc::new(tree.dtb);
+    let previous = live.data.clone();
+    let at = match state.ssh.status.get_untracked() {
+        LiveStatus::Read(at) => at,
+        _ => now(),
+    };
+    let host = live.host.clone();
     state.ssh.live.set(Some(LiveDevice {
         name: name.clone(),
         path: tree.path,
@@ -208,7 +214,38 @@ fn apply(state: AppState, live: LiveDevice, tree: SshTree, manual: bool) {
         ..live
     }));
     actions::replace_live_blob(state, &name, data);
-    state.notify("The device's tree changed; updated", false);
+    // Already comparing with a snapshot: its differences update; no need to offer more.
+    let comparing = state.compare.with_untracked(Option::is_some);
+    state.toast.set(Some(Toast {
+        message: "The device's tree changed; updated".into(),
+        error: false,
+        action: (!comparing).then(|| ToastAction::CompareWithPrevious {
+            name: format!("{host} · before {at}"),
+            data: previous,
+        }),
+    }));
+}
+
+/// Freezes the device's current tree and compares with it from now on (D-034).
+pub fn take_snapshot(state: AppState) {
+    let Some(live) = state.ssh.live.get_untracked() else {
+        return;
+    };
+    let name = format!("{} · snapshot {}", live.host, now());
+    state
+        .snapshots
+        .update(|s| s.push((name.clone(), live.data.clone())));
+    actions::compare_with(
+        state,
+        CompareWith::Blob {
+            name: name.clone(),
+            data: live.data,
+        },
+    );
+    state.notify(
+        format!("Comparing with {name}: refresh to see what changes"),
+        false,
+    );
 }
 
 /// (Re)starts the auto-refresh loop for the current interval.
@@ -810,6 +847,18 @@ pub fn LiveBar() -> impl IntoView {
                             })
                             .collect_view()}
                     </select>
+                    <button
+                        class="ghost icon"
+                        title="Take snapshot: compare with the tree as it is now"
+                        aria-label="Take snapshot"
+                        on:click=move |_| take_snapshot(state)
+                    >
+                        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                            <rect x="1.8" y="4.2" width="12.4" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.5" />
+                            <path d="M5.5 4.2 6.6 2.4h2.8l1.1 1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                            <circle cx="8" cy="8.7" r="2.3" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        </svg>
+                    </button>
                     <button class="ghost icon" title="Disconnect (the tree stays shown)" aria-label="Disconnect" on:click=move |_| disconnect(state)>
                         "✕"
                     </button>

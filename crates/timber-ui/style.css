@@ -783,3 +783,33 @@ ul.plain.recent li.recent-row { flex-wrap: nowrap; gap: 2px; }
   .live-label { display: none; }
   .offer { top: auto; bottom: 16px; }
 }
+
+/* ---- comparing trees (M6) ---- */
+.prop-compare {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) 1fr;
+  gap: 2px 8px;
+  margin-top: 3px;
+  font: 12px var(--mono);
+}
+.cmp-side { color: var(--muted); font-family: var(--sans); font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 1px; }
+.cmp-val { word-break: break-word; }
+.tok-changed { background: var(--diff-bg); color: var(--diff-text); border-radius: 3px; outline: 1px solid var(--diff-stroke); padding: 0 1px; }
+.popup-row.ghost .row-name { font-style: italic; opacity: 0.75; }
+.popup-row.ghost .dot { background: transparent !important; border: 1.5px dashed var(--muted); }
+.dot.big.ghost { background: transparent; border: 2px dashed; box-sizing: border-box; }
+.popup-sub { display: flex; align-items: center; gap: 8px; }
+button.diff-only { margin-left: auto; font-size: 11.5px; padding: 1px 6px; }
+button.diff-only.on { background: var(--diff-bg); color: var(--diff-text); border-color: var(--diff-stroke); }
+button.diag.same { border-color: var(--ok-bg); background: var(--ok-bg); color: var(--ok); }
+.drawer.summary header { flex-wrap: wrap; }
+.drawer.summary header button.ghost { margin-left: auto; }
+.drawer.summary header button.small { margin-left: 0; }
+.summary-body { overflow: auto; padding: 4px 12px 10px; }
+.summary-body h4 { margin: 10px 0 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.summary-body ul { padding: 0; }
+.summary-body li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.summary-body .link { font-size: 12.5px; text-align: left; }
+ul.snapshots { display: flex; flex-wrap: wrap; gap: 6px; }
+.toast-action { margin-left: 10px; background: transparent; color: inherit; border-color: currentColor; }
+label.check.small { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }

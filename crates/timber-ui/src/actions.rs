@@ -13,7 +13,7 @@ use crate::overlays::{OverlayFrom, OverlaySpec, apply_all};
 use timber_core::vfs::Vfs;
 
 use crate::sources::{ConfigSource, EntryKind, SourceSet, annotate, folder_filter, parse_defines};
-use crate::state::{AppState, Shown};
+use crate::state::{AppState, CompareWith, Shown};
 
 const BOARD_CHOICE_KEY: &str = "timber.board:";
 
@@ -357,7 +357,7 @@ fn build(state: AppState) -> Option<Result<Document, String>> {
             doc.with_overlays(applied)
         }
     };
-    Some(match shown {
+    let doc = match shown {
         Shown::Blob { name, data } => {
             Document::from_blob(&name, &data).map(|doc| linked(state, &overlaid(doc), &set))
         }
@@ -372,7 +372,88 @@ fn build(state: AppState) -> Option<Result<Document, String>> {
                 set.compile_as(&path, symbols),
             )))
         }
-    })
+    };
+    Some(doc.map(|doc| compared(state, doc, &set)))
+}
+
+/// Compares the document with the chosen tree, or by default its source board (D-032).
+fn compared(state: AppState, doc: Document, set: &SourceSet) -> Document {
+    match state.compare.get_untracked() {
+        Some(CompareWith::Blob { name, data }) => match timber_core::dtb::parse(&data) {
+            Ok(b) => doc.with_comparison(&name, false, b, None),
+            Err(e) => {
+                state.notify(format!("Can't compare with {name}: {e}"), true);
+                doc
+            }
+        },
+        Some(CompareWith::Board { path }) if !set.vfs.exists(&path) => {
+            state.notify(
+                format!("Can't compare: {path} is no longer in the sources"),
+                true,
+            );
+            doc
+        }
+        Some(with @ CompareWith::Board { .. }) => {
+            let CompareWith::Board { path } = &with else {
+                unreachable!()
+            };
+            let symbols = set.target(path).is_some_and(|t| t.symbols_flag);
+            let b = set.compile_as(path, symbols).tree;
+            doc.with_comparison(with.name(), false, b, None)
+        }
+        None => match &doc.link {
+            Some(link) => {
+                let (b, map) = (link.tree.clone(), link.map.clone());
+                let board = link
+                    .board
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&link.board)
+                    .to_string();
+                doc.with_comparison(&board, true, b, Some(map))
+            }
+            None => doc,
+        },
+    }
+}
+
+/// Compares the tree shown with `with` from now on (D-032).
+pub fn compare_with(state: AppState, with: CompareWith) {
+    let name = with.name().to_string();
+    state.compare.set(Some(with));
+    state.sources_open.set(false);
+    rebuild(state, false, &format!("Comparing with {name}…"));
+}
+
+/// Back to the default: differences from the source board.
+pub fn back_to_source(state: AppState) {
+    state.compare.set(None);
+    state.sources_open.set(false);
+    rebuild(state, false, "Comparing…");
+}
+
+/// Picks a DTB to compare the tree shown with.
+pub fn compare_with_file(state: AppState, backend: BackendHandle) {
+    leptos::task::spawn_local(async move {
+        let files = match backend.0.open_files().await {
+            Ok(Some(files)) => files,
+            Ok(None) => return,
+            Err(e) => return state.notify(format!("Couldn't open files: {e}"), true),
+        };
+        match files.into_iter().find(|f| timber_core::dtb::is_dtb(&f.data)) {
+            Some(f) => compare_with(
+                state,
+                CompareWith::Blob {
+                    name: f.name,
+                    data: Arc::new(f.data),
+                },
+            ),
+            None => state.notify(
+                "Compare with a compiled .dtb; to compare with a .dts, add it to the sources and pick it as a board",
+                true,
+            ),
+        }
+    });
 }
 
 /// Rebuilds the document. `fresh` starts a new view (new tree); otherwise the web is kept
@@ -564,7 +645,11 @@ pub fn show_differences(state: AppState) {
     let tree = doc.tree.clone();
     set_timeout(move || state.graph.fit(&tree), Duration::from_millis(600));
     state.notify(
-        format!("Showing {} nodes that differ from source", marked.len()),
+        format!(
+            "Showing {} nodes that differ from {}",
+            marked.len(),
+            diff.b_name()
+        ),
         false,
     );
 }
@@ -683,7 +768,7 @@ async fn smoke_report(state: AppState, expect_doc: bool) {
         line.push_str(&format!(
             " doc={} nodes={} errors={}",
             doc.short_name(),
-            doc.tree.len(),
+            doc.node_count(),
             doc.error_count()
         ));
         if let Some(link) = &doc.link {
@@ -695,8 +780,8 @@ async fn smoke_report(state: AppState, expect_doc: bool) {
         }
         if let Some(d) = &doc.diff {
             line.push_str(&format!(
-                " differ={} not_in_source={}",
-                d.differing, d.not_in_source
+                " differ={} not_in_source={} only_in_source={}",
+                d.changed, d.only_a, d.only_b
             ));
         }
     }

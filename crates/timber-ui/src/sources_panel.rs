@@ -4,15 +4,15 @@
 use leptos::prelude::*;
 
 use crate::actions::{
-    add_config, add_folder, add_overlay_files, choose_board_for_blob, choose_composite_for_blob,
-    open_files, reload_folder, remove_config, remove_source, set_defines, set_overlay_list,
-    show_board, show_composite,
+    add_config, add_folder, add_overlay_files, back_to_source, choose_board_for_blob,
+    choose_composite_for_blob, compare_with, compare_with_file, open_files, reload_folder,
+    remove_config, remove_source, set_defines, set_overlay_list, show_board, show_composite,
 };
 use crate::backend::{BackendHandle, FolderAccess};
 use crate::doc::Origin;
 use crate::overlays::{OverlayFrom, OverlaySpec};
 use crate::sources::{ConfigSource, EntryKind, format_defines};
-use crate::state::AppState;
+use crate::state::{AppState, CompareWith};
 
 /// Picker rows for composite boards carry this prefix before the `.dtb` path.
 pub const COMPOSITE: &str = "composite:";
@@ -267,7 +267,7 @@ pub fn SourcesPanel() -> impl IntoView {
                 view! {
                     <p>
                         <span class="mono">{d.name.clone()}</span>
-                        <span class="muted">{format!(" · {what} · {} nodes", d.tree.len())}</span>
+                        <span class="muted">{format!(" · {what} · {} nodes", d.node_count())}</span>
                     </p>
                 }
                 .into_any()
@@ -361,24 +361,6 @@ pub fn SourcesPanel() -> impl IntoView {
             <section>
                 <h4>{format!("Source board for {}", doc.short_name())}</h4>
                 {status}
-                {doc.diff.as_ref().map(|d| {
-                    let summary = if d.differing + d.not_in_source == 0 {
-                        "No differences from source.".to_string()
-                    } else {
-                        format!("{} nodes differ from source · {} not in source", d.differing, d.not_in_source)
-                    };
-                    let any = d.differing + d.not_in_source > 0;
-                    view! {
-                        <p class="small">
-                            {summary}
-                            {any.then(|| view! {
-                                <button class="small link-button" on:click=move |_| crate::actions::show_differences(state)>
-                                    "Show differences"
-                                </button>
-                            })}
-                        </p>
-                    }
-                })}
                 <BoardPicker
                     placeholder="Choose a different board…".to_string()
                     on_pick=move |path: String| match path.strip_prefix(COMPOSITE) {
@@ -391,6 +373,75 @@ pub fn SourcesPanel() -> impl IntoView {
                     "If the device's DTB already had overlays applied (by U-Boot, for example), add them here so they're part of the comparison rather than showing as differences."
                 </p>
                 <OverlayList boot=true />
+            </section>
+        })
+    };
+
+    let b_compare = StoredValue::new(backend.clone());
+    let compare_section = move || {
+        let doc = state.doc.get()?;
+        let with = state.compare.get();
+        let status = match (&with, doc.diff.as_ref()) {
+            (None, Some(d)) => format!("The source board, {}: {}", d.against, d.summary()),
+            (None, None) => "Nothing yet: pick a tree to compare with.".to_string(),
+            (Some(w), Some(d)) => format!("{}: {}", w.name(), d.summary()),
+            (Some(w), None) => format!("{} (couldn't be compared)", w.name()),
+        };
+        let any = doc.diff.as_ref().is_some_and(|d| d.total() > 0);
+        let back = with.is_some().then(|| {
+            let label = if doc.link.is_some() { "Back to source" } else { "Stop comparing" };
+            view! { <button class="small link-button" on:click=move |_| back_to_source(state)>{label}</button> }
+        });
+        let snapshots = state.snapshots.get();
+        let snapshot_rows = (!snapshots.is_empty()).then(|| {
+            snapshots
+                .into_iter()
+                .map(|(name, data)| {
+                    let current = matches!(&with, Some(CompareWith::Blob { name: n, .. }) if *n == name);
+                    let pick = CompareWith::Blob { name: name.clone(), data };
+                    view! {
+                        <li>
+                            <button class="small" disabled=current on:click=move |_| compare_with(state, pick.clone())>
+                                {name.clone()}
+                            </button>
+                        </li>
+                    }
+                })
+                .collect_view()
+        });
+        Some(view! {
+            <section>
+                <h4>"Compare with"</h4>
+                <p class="small">
+                    {status}
+                    {any.then(|| view! {
+                        <button class="small link-button" on:click=move |_| {
+                            state.sources_open.set(false);
+                            state.summary_open.set(true);
+                        }>"Summary"</button>
+                    })}
+                    {back}
+                </p>
+                <div class="row">
+                    <button on:click=move |_| compare_with_file(state, b_compare.get_value())>"Compare with a DTB…"</button>
+                </div>
+                {snapshot_rows.map(|rows| view! {
+                    <p class="muted small">"Snapshots of the live device:"</p>
+                    <ul class="plain snapshots">{rows}</ul>
+                })}
+                <Show when=move || !state.sources.with(|s| s.boards.is_empty())>
+                    <p class="muted small">"Or a board from the sources:"</p>
+                    <BoardPicker
+                        placeholder="Compare with a board…".to_string()
+                        on_pick=move |path: String| match path.strip_prefix(COMPOSITE) {
+                            Some(dtb) => state.notify(
+                                format!("{dtb} is a composite board; compare with its base board, or with a DTB built from it"),
+                                true,
+                            ),
+                            None => compare_with(state, CompareWith::Board { path }),
+                        }
+                    />
+                </Show>
             </section>
         })
     };
@@ -445,6 +496,8 @@ pub fn SourcesPanel() -> impl IntoView {
                     </section>
 
                     {annotation}
+
+                    {compare_section}
 
                     <section>
                         <h4>"Source folders and files"</h4>

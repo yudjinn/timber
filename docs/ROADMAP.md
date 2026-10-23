@@ -91,10 +91,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] Manual check against a real board: password and keyboard-interactive logins (an unprivileged sshd can't test them), a real `/proc/device-tree`, busybox `tar`/`od`
 - [ ] Manual check on Windows (agent over the OpenSSH named pipe, ProxyCommand via `cmd /C`) and macOS
 
-## M6 · Diff
-- [ ] Phandle-normalised tree diff
-- [ ] Compare two arbitrary trees (DTB vs DTB, live vs source); filtered popup/search; side-by-side values with byte highlights
-- [ ] Summary panel
+## M6 · Diff (D-032…D-035) — done 2026-10-23
+- [x] `timber_core::diff`: compare two trees by path, phandle-normalised; ghosts for nodes only in B; token-level value diff
+- [x] One comparison: source by default, **Compare with…** a DTB / board / snapshot, **Back to source**
+- [x] Ghost nodes in the web, popup, search and panel; never exported
+- [x] Side-by-side values with highlights in the panel
+- [x] **Only differences** filter for the popup and search
+- [x] Summary panel: jump to nodes, show all in the web, **Copy as Markdown**
+- [x] Live: **Take snapshot**, **Compare with previous**
+- [x] Tests: core unit tests, Playwright specs
+- [x] Verified: 19 Playwright specs (ghosts, side-by-side, Only differences, Markdown, snapshots, compare with previous, default source comparison); desktop `--smoke` unchanged (3 differences)
+- [ ] Manual check: snapshots and Compare with previous against a real board
 
 ## M7 · Packaging
 - [ ] CI: `cargo test`, clippy, and the Playwright tests in `tests/ui`

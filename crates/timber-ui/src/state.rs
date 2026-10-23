@@ -227,6 +227,24 @@ pub enum Shown {
     Board { path: String },
 }
 
+/// A tree to compare the one shown with (D-032).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompareWith {
+    /// A DTB file or a live snapshot.
+    Blob { name: String, data: Arc<Vec<u8>> },
+    /// A board from the sources.
+    Board { path: String },
+}
+
+impl CompareWith {
+    pub fn name(&self) -> &str {
+        match self {
+            CompareWith::Blob { name, .. } => name,
+            CompareWith::Board { path } => path.rsplit('/').next().unwrap_or(path),
+        }
+    }
+}
+
 /// A place in a source file (paths are in the sources VFS).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
@@ -242,6 +260,22 @@ pub type Anchor = (f64, f64, f64, f64, f64);
 pub struct Toast {
     pub message: String,
     pub error: bool,
+    /// A button on the notice.
+    pub action: Option<ToastAction>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToastAction {
+    /// Compare the live tree with the read before this one (D-034).
+    CompareWithPrevious { name: String, data: Arc<Vec<u8>> },
+}
+
+impl ToastAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ToastAction::CompareWithPrevious { .. } => "Compare with previous",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -280,6 +314,13 @@ pub struct AppState {
     pub settings_open: RwSignal<bool>,
     /// A long-running step in progress (reading a folder, matching a board).
     pub busy: RwSignal<Option<String>>,
+    /// What the tree shown is compared with, instead of its source board (D-032).
+    pub compare: RwSignal<Option<CompareWith>>,
+    /// Live snapshots taken this session (D-034), offered under Compare with.
+    pub snapshots: RwSignal<Vec<(String, Arc<Vec<u8>>)>>,
+    /// List only nodes with differences in the popup and search.
+    pub diff_only: RwSignal<bool>,
+    pub summary_open: RwSignal<bool>,
     /// SSH: the connect dialog and the live device.
     pub ssh: crate::ssh::SshState,
     pub capabilities: Capabilities,
@@ -311,6 +352,10 @@ impl AppState {
             disk_paths: StoredValue::new_local(HashMap::new()),
             editor_cmd: RwSignal::new(String::new()),
             settings_open: RwSignal::new(false),
+            compare: RwSignal::new(None),
+            snapshots: RwSignal::new(Vec::new()),
+            diff_only: RwSignal::new(false),
+            summary_open: RwSignal::new(false),
             ssh: crate::ssh::SshState::new(),
             capabilities,
         }
@@ -324,6 +369,7 @@ impl AppState {
         self.toast.set(Some(Toast {
             message: message.into(),
             error,
+            action: None,
         }));
     }
 

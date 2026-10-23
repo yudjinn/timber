@@ -4,7 +4,9 @@ use timber_core::{NodeId, Tree};
 
 use super::painter::{Font, Painter};
 use super::sim::{Sim, radius};
-use crate::doc::{DiffInfo, DiffMark};
+use timber_core::diff::Mark;
+
+use crate::doc::Comparison;
 use crate::kind::Kind;
 use crate::state::Camera;
 
@@ -81,8 +83,8 @@ pub struct Frame<'a> {
     pub origin: (f64, f64),
     /// Label every node regardless of zoom (exports); overlapping labels are still culled.
     pub all_labels: bool,
-    /// Differences from the linked source, when there is one.
-    pub diff: Option<&'a DiffInfo>,
+    /// The comparison with another tree (the linked source by default), if any.
+    pub diff: Option<&'a Comparison>,
 }
 
 const BADGE_FONT: Font = Font::new(10.0, true);
@@ -151,19 +153,31 @@ pub fn draw(p: &mut dyn Painter, f: &Frame) {
             continue;
         }
         let enabled = tree.is_enabled(n.id);
-        let dash: &[f64] = if enabled { &[] } else { &[2.0, 2.0] };
-        p.circle(
-            x,
-            y,
-            r,
-            Some(kinds[n.id].color(pal.dark)),
-            Some((pal.outline, 1.0)),
-            dash,
-            if enabled { 1.0 } else { 0.38 },
-        );
-        if f.diff
-            .is_some_and(|d| d.marks[n.id] == DiffMark::NotInSource)
-        {
+        let mark = f.diff.map_or(Mark::Same, |d| d.marks[n.id]);
+        if mark == Mark::OnlyB {
+            // A ghost: only in the other tree (D-033).
+            p.circle(
+                x,
+                y,
+                r,
+                None,
+                Some((kinds[n.id].color(pal.dark), 1.6)),
+                &[4.0, 3.0],
+                0.75,
+            );
+        } else {
+            let dash: &[f64] = if enabled { &[] } else { &[2.0, 2.0] };
+            p.circle(
+                x,
+                y,
+                r,
+                Some(kinds[n.id].color(pal.dark)),
+                Some((pal.outline, 1.0)),
+                dash,
+                if enabled { 1.0 } else { 0.38 },
+            );
+        }
+        if mark == Mark::OnlyA {
             p.circle(
                 x,
                 y,
@@ -249,12 +263,7 @@ pub fn draw(p: &mut dyn Painter, f: &Frame) {
             p.rounded_rect(bx, by, tw + 8.0, 14.0, 7.0, bg, None);
             p.text(bx + 4.0, by + 10.5, &text, BADGE_FONT, fg, None);
         }
-        let mark = f.diff.map_or(DiffMark::Same, |d| d.marks[n.id]);
-        if mark != DiffMark::Same && badges {
-            let text = match mark {
-                DiffMark::Differs(k) => format!("Δ{k}"),
-                _ => "new".to_string(),
-            };
+        if let Some(text) = f.diff.and_then(|d| d.pill(n.id)).filter(|_| badges) {
             let tw = p.measure(&text, BADGE_FONT);
             let (bx, by) = (x - r * 0.7 - 2.0 - tw - 8.0, y - r * 0.7 - 7.0);
             p.rounded_rect(

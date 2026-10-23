@@ -1,6 +1,7 @@
 //! Device tree model plus readers/writers for the flattened (DTB) and source (DTS) formats.
 
 pub mod bsp;
+pub mod diff;
 pub mod dtb;
 pub mod dts;
 pub mod folder;

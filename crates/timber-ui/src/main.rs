@@ -19,6 +19,7 @@ mod sources;
 mod sources_panel;
 mod ssh;
 mod state;
+mod summary;
 mod tauri;
 mod toolbar;
 mod util;

@@ -1,8 +1,9 @@
 //! The tree being shown plus the indexes the UI needs.
 
+use timber_core::diff::{self, Mark, TreeDiff};
 use timber_core::dts::Compiled;
 use timber_core::source_map::SourceMap;
-use timber_core::{Diagnostic, NodeId, Severity, Tree, bsp, dtb, format};
+use timber_core::{Diagnostic, NodeId, Severity, Tree, dtb, format};
 
 use crate::kind::{Kind, classify};
 use crate::overlays::{Overlaid, OverlayMark};
@@ -35,8 +36,9 @@ pub struct Document {
     pub link: Option<SourceLink>,
     /// Nodes whose labels were borrowed from the linked source (blobs built without `-@`).
     pub borrowed_labels: Vec<bool>,
-    /// How each node compares with the linked source (blobs only).
-    pub diff: Option<DiffInfo>,
+    /// How the tree compares with another (D-032): its linked source by default. When
+    /// set, `tree` also holds ghosts for nodes only in the other tree (D-033).
+    pub diff: Option<Comparison>,
     /// What the overlays applied to this tree set or added.
     pub overlay_marks: Vec<OverlayMark>,
     pub diagnostics: Vec<Diagnostic>,
@@ -145,7 +147,6 @@ impl Document {
                 tree.node_mut(id).labels.clear();
             }
         }
-        let diff = link.as_ref().map(|l| DiffInfo::compute(&self.tree, l));
         let mut borrowed_labels = vec![false; tree.len()];
         if let Some(l) = &link {
             for (id, borrowed) in borrowed_labels.iter_mut().enumerate() {
@@ -163,7 +164,7 @@ impl Document {
             source_map: self.source_map.clone(),
             link,
             borrowed_labels,
-            diff,
+            diff: None,
             overlay_marks: self.overlay_marks.clone(),
             diagnostics,
             overlay: self.overlay,
@@ -173,8 +174,59 @@ impl Document {
         }
     }
 
+    /// Compares the tree with `b` (`map`: this tree's nodes → `b`'s, by path if `None`),
+    /// grafting ghosts for `b`'s extra nodes.
+    pub fn with_comparison(
+        mut self,
+        against: &str,
+        from_source: bool,
+        b: Tree,
+        map: Option<Vec<Option<NodeId>>>,
+    ) -> Self {
+        let mut d = diff::compare(&self.tree, &b, map);
+        self.tree = std::mem::replace(&mut d.tree, Tree::new());
+        for bid in &d.map[d.a_len..] {
+            self.kinds
+                .push(bid.map_or(Kind::Device, |bid| classify(&b, bid)));
+        }
+        self.borrowed_labels.resize(self.tree.len(), false);
+        self.referenced_by.resize(self.tree.len(), Vec::new());
+        self.search = SearchIndex::new(&self.tree);
+        self.diff = Some(Comparison {
+            against: against.to_string(),
+            from_source,
+            b,
+            d,
+        });
+        self
+    }
+
+    /// Nodes in the tree itself, not counting ghosts.
+    pub fn node_count(&self) -> usize {
+        self.diff.as_ref().map_or(self.tree.len(), |d| d.a_len)
+    }
+
+    pub fn is_ghost(&self, id: NodeId) -> bool {
+        self.diff.as_ref().is_some_and(|d| d.is_ghost(id))
+    }
+
+    /// The tree without ghosts, for export.
+    pub fn own_tree(&self) -> Tree {
+        let Some(d) = &self.diff else {
+            return self.tree.clone();
+        };
+        let ghosts = (d.a_len..self.tree.len()).collect();
+        let mut tree = self.tree.clone();
+        tree.remove_subtrees(&ghosts);
+        tree.finalize();
+        tree
+    }
+
     /// Where node `id` comes from: the source map and the node's id within it.
     pub fn source_for(&self, id: NodeId) -> Option<(&SourceMap, NodeId)> {
+        if self.is_ghost(id) {
+            return None;
+        }
         if let Some(sm) = &self.source_map {
             return Some((sm, id));
         }
@@ -202,74 +254,66 @@ impl Document {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffMark {
-    Same,
-    /// This many properties differ, are missing, or are extra compared with the source.
-    Differs(usize),
-    /// The node has no counterpart in the source.
-    NotInSource,
+/// The tree shown compared with another (A with B).
+#[derive(Debug, Clone)]
+pub struct Comparison {
+    /// B's name, for messages ("rk3588-rock-5b.dts", "rock5b · snapshot 12:01:33").
+    pub against: String,
+    /// B is the linked source board (the default comparison).
+    pub from_source: bool,
+    pub b: Tree,
+    /// Marks, counts and the node map; its `tree` was moved into the document.
+    pub d: TreeDiff,
 }
 
-/// Per-node comparison of a blob with its linked source.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DiffInfo {
-    pub marks: Vec<DiffMark>,
-    /// Marked nodes strictly below each node.
-    pub below: Vec<usize>,
-    pub differing: usize,
-    pub not_in_source: usize,
+impl std::ops::Deref for Comparison {
+    type Target = TreeDiff;
+    fn deref(&self) -> &TreeDiff {
+        &self.d
+    }
 }
 
-impl DiffInfo {
-    pub fn compute(blob: &Tree, link: &SourceLink) -> Self {
-        let marks: Vec<DiffMark> = (0..blob.len())
-            .map(|id| {
-                if bsp::is_generated(blob, id) {
-                    return DiffMark::Same;
-                }
-                match link.map[id] {
-                    None => DiffMark::NotInSource,
-                    Some(sid) => {
-                        let c = bsp::compare_node(blob, id, &link.tree, sid);
-                        match c.differs.len() + c.only_a.len() + c.only_b.len() {
-                            0 => DiffMark::Same,
-                            n => DiffMark::Differs(n),
-                        }
-                    }
-                }
-            })
-            .collect();
-        // Blobs are parsed depth-first, so children have larger ids than their parents.
-        let mut below = vec![0usize; blob.len()];
-        for id in (1..blob.len()).rev() {
-            if let Some(p) = blob.node(id).parent {
-                below[p] += below[id] + usize::from(marks[id] != DiffMark::Same);
+impl Comparison {
+    /// How B is named in the UI: "source" or its name.
+    pub fn b_name(&self) -> &str {
+        if self.from_source {
+            "source"
+        } else {
+            &self.against
+        }
+    }
+
+    /// "3 changed · 1 new · 2 gone", or "no differences".
+    pub fn summary(&self) -> String {
+        if self.total() == 0 {
+            return "no differences".into();
+        }
+        let mut parts = Vec::new();
+        for (n, what) in [
+            (self.changed, "changed"),
+            (self.only_a, "new"),
+            (self.only_b, "gone"),
+        ] {
+            if n > 0 {
+                parts.push(format!("{n} {what}"));
             }
         }
-        let differing = marks
-            .iter()
-            .filter(|m| matches!(m, DiffMark::Differs(_)))
-            .count();
-        let not_in_source = marks
-            .iter()
-            .filter(|m| **m == DiffMark::NotInSource)
-            .count();
-        DiffInfo {
-            marks,
-            below,
-            differing,
-            not_in_source,
+        parts.join(" · ")
+    }
+
+    /// The counterpart of `id` in B.
+    pub fn b_node(&self, id: NodeId) -> Option<NodeId> {
+        self.map.get(id).copied().flatten()
+    }
+
+    /// A short marker for the popup and web: `Δ2`, `new`, `gone`.
+    pub fn pill(&self, id: NodeId) -> Option<String> {
+        match self.marks.get(id)? {
+            Mark::Changed(k) => Some(format!("Δ{k}")),
+            Mark::OnlyA => Some("new".into()),
+            Mark::OnlyB => Some("gone".into()),
+            Mark::Same => None,
         }
-    }
-
-    pub fn is_marked(&self, id: NodeId) -> bool {
-        self.marks.get(id).is_some_and(|m| *m != DiffMark::Same)
-    }
-
-    /// Marked nodes at or below `id`.
-    pub fn in_subtree(&self, id: NodeId) -> usize {
-        usize::from(self.is_marked(id)) + self.below.get(id).copied().unwrap_or(0)
     }
 }
 
@@ -311,10 +355,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diff_marks_and_subtree_counts() {
+    fn compared_with_source_and_ghosts() {
         use crate::sources::{EntryKind, SourceSet, annotate};
-        let src =
-            "/dts-v1/;\n/ { compatible = \"acme,b\"; soc { a { x = <1>; }; b { y = <2>; }; }; };\n";
+        let src = "/dts-v1/;\n/ { compatible = \"acme,b\"; soc { a { x = <1>; }; b { y = <2>; }; c { }; }; };\n";
         let (set, _) = SourceSet::default().with_files(
             EntryKind::Folder,
             vec![("bsp/b.dts".into(), src.as_bytes().to_vec())],
@@ -324,20 +367,34 @@ mod tests {
         tree.node_mut(a).set_prop("x", vec![0, 0, 0, 9]);
         let soc = tree.find("/soc").unwrap();
         tree.add_child(soc, "extra");
+        let c = tree.find("/soc/c").unwrap();
+        let mut tree = {
+            let mut t = tree;
+            t.remove_subtrees(&[c].into_iter().collect());
+            t
+        };
+        tree.finalize();
         let doc = Document::from_blob("b.dtb", &dtb::write(&tree)).unwrap();
-        let link = annotate(&doc.tree, "b.dtb", &set, None, &[]);
-        let doc = doc.relinked(link);
+        let own = doc.tree.len();
+        let link = annotate(&doc.tree, "b.dtb", &set, None, &[]).unwrap();
+        let (b, map) = (link.tree.clone(), link.map.clone());
+        let doc = doc
+            .relinked(Some(link))
+            .with_comparison("b.dts", true, b, Some(map));
         let diff = doc.diff.as_ref().unwrap();
         let t = &doc.tree;
-        assert_eq!(diff.marks[t.find("/soc/a").unwrap()], DiffMark::Differs(1));
-        assert_eq!(
-            diff.marks[t.find("/soc/extra").unwrap()],
-            DiffMark::NotInSource
-        );
-        assert_eq!(diff.marks[t.find("/soc/b").unwrap()], DiffMark::Same);
-        assert_eq!((diff.differing, diff.not_in_source), (1, 1));
-        assert_eq!(diff.below[Tree::ROOT], 2);
-        assert_eq!(diff.in_subtree(t.find("/soc").unwrap()), 2);
+        assert_eq!(diff.marks[t.find("/soc/a").unwrap()], Mark::Changed(1));
+        assert_eq!(diff.marks[t.find("/soc/extra").unwrap()], Mark::OnlyA);
+        assert_eq!(diff.marks[t.find("/soc/b").unwrap()], Mark::Same);
+        let ghost = t.find("/soc/c").unwrap();
+        assert!(doc.is_ghost(ghost) && diff.pill(ghost).as_deref() == Some("gone"));
+        assert_eq!((diff.changed, diff.only_a, diff.only_b), (1, 1, 1));
+        assert_eq!(diff.in_subtree(t.find("/soc").unwrap()), 3);
+        assert_eq!(doc.node_count(), own);
+        assert_eq!(doc.kinds.len(), t.len());
+        assert!(doc.source_for(ghost).is_none());
+        assert!(doc.own_tree().find("/soc/c").is_none());
+        assert_eq!(diff.b_name(), "source");
     }
 
     #[test]
