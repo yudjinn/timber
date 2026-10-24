@@ -5371,11 +5371,11 @@ dependencies = [
 
 [[package]]
 name = "timber-core"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "timber-csp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "sha2 0.10.9",
@@ -5383,7 +5383,7 @@ dependencies = [
 
 [[package]]
 name = "timber-desktop"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "flate2",
  "notify",
@@ -5398,7 +5398,7 @@ dependencies = [
 
 [[package]]
 name = "timber-ui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",

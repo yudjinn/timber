@@ -644,7 +644,7 @@ timber/
 - **Golden** (`golden.yml`): every arm64, arm and riscv board and overlay against cpp + dtc, plain and `-@`. Weekly and on demand, with any kernel tag.
 
 **Release** ([D-038](DECISIONS.md)), on pushing a tag `vX.Y.Z`:
-- The tag must match the version in `Cargo.toml` and `tauri.conf.json`; CI runs first.
+- The tag must match the version in `Cargo.toml`, the only place it's set (`tauri.conf.json` leaves it out, so Tauri uses Cargo's); CI runs first.
 - `tauri-action` builds **Linux** (AppImage, .deb, on Ubuntu 22.04 for older glibc) and **Windows** (.msi, NSIS .exe) into a **draft** GitHub Release. Builds are **unsigned**. No macOS builds for now.
 - **Web** ([D-039](DECISIONS.md)): `trunk build --release` deployed to **Cloudflare Workers** as static assets (`wrangler.jsonc`, no Worker script), by `web.yml`. `_headers` sets the D-036 caching. It can also be run by hand to deploy without releasing.
 - No in-app updater for now.

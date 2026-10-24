@@ -2,7 +2,6 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Timber",
   "mainBinaryName": "timber",
-  "version": "0.1.0",
   "identifier": "dev.timber.viewer",
   "build": {
     "beforeDevCommand": { "script": "trunk serve", "cwd": "../.." },

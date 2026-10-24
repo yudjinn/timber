@@ -1,4 +1,4 @@
-# Push a tag like v0.2.0 (matching the version in Cargo.toml and tauri.conf.json): runs CI,
+# Push a tag like v0.2.0 (matching the version in Cargo.toml): runs CI,
 # builds the Linux and Windows apps into a draft GitHub Release, and deploys the web build
 # to Cloudflare Workers as static assets (D-038, D-039).
 name: Release

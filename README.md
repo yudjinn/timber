@@ -73,7 +73,7 @@ CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull requ
 
 To release:
 
-1. Set the new version in `Cargo.toml` (`[workspace.package]`) and `crates/timber-desktop/tauri.conf.json`, and commit.
+1. Set the new version in `Cargo.toml` (`[workspace.package]`) and commit. It's the only place the version lives; the desktop app takes it from there.
 2. Tag and push: `git tag v0.2.0 && git push origin main v0.2.0`.
 3. `release.yml` checks the tag matches the version and runs CI. It then builds the Linux (AppImage, .deb) and Windows (.msi, .exe) apps into a **draft** release, and deploys the web build to Cloudflare.
 4. Check the draft under Releases and publish it.
