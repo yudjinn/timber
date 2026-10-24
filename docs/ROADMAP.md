@@ -65,7 +65,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Greyed-out desktop-only features in the web build ("Requires the desktop app"); desktop SSH says "arrives in M5"
 - [x] Verified: `--smoke` (kernel tree + patched DTB → 100% match, 3 differences, under 3 s); `--smoke-watch` (editing a .dts while open → reloaded, 4 differences); web build re-checked in headless Chromium
 - [x] Manual check of the native dialogs and Open in editor on Linux (2026-10-22)
-- [ ] Manual check on Windows and macOS
+- [ ] Manual check on Windows (macOS only if asked for)
 
 ## M4 · BSP folders — done 2026-10-22
 - [x] Folder indexing (desktop native, M3; web, M2b/M2c)
@@ -89,7 +89,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] `timber --ssh TARGET [--ssh-options …] [--tree-path …]`
 - [x] Verified: throwaway-sshd tests (key auth, passphrases, unknown/changed host keys, ProxyCommand, tar.gz/tar/od, config.gz, reconnect); `--ssh … --smoke` against the Rock 5B tree served as a fake `/proc/device-tree` (813 nodes, rk3588-rock-5b.dts at 100%, 3 differences, the same as the DTB file); UI flows in headless Chromium against a mocked backend
 - [ ] Manual check against a real board: password and keyboard-interactive logins (an unprivileged sshd can't test them), a real `/proc/device-tree`, busybox `tar`/`od`
-- [ ] Manual check on Windows (agent over the OpenSSH named pipe, ProxyCommand via `cmd /C`) and macOS
+- [ ] Manual check on Windows (agent over the OpenSSH named pipe, ProxyCommand via `cmd /C`)
 
 ## M6 · Diff (D-032…D-035) — done 2026-10-23
 - [x] `timber_core::diff`: compare two trees by path, phandle-normalised; ghosts for nodes only in B; token-level value diff
@@ -109,8 +109,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Release (`release.yml`): tag must match the version; Linux AppImage/.deb and Windows .msi/.exe as a draft release, unsigned
 - [x] Web deploy to Cloudflare Workers static assets (`web.yml`, also manual) with `_headers` for D-036 caching; checked locally with `wrangler dev`
 - [x] Verified locally: the kernel fetch, golden tests and Playwright suite against `v7.2`; the Playwright suite against the release web build; the Linux bundles; the version check
-- [ ] First run on GitHub: push, then check CI (the first Windows build and test run is the first time the Windows-only code is compiled)
-- [ ] Cloudflare: add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (optionally `CLOUDFLARE_WORKER_NAME`), then run **Deploy web** once
+- [~] First run on GitHub: the app compiled on Windows, including the Windows-only SSH code; the test build's dead-code error is fixed in 31658f9. Next: a green run
+- [x] Cloudflare: secrets added, deployed at https://timber.yudjinn.dev (2026-10-23)
 - [ ] First release: tag `v0.1.0`, check the draft
 - [x] Before publishing (D-040, D-041): MIT `LICENSE` and licence fields, `SECURITY.md`, history checked for secrets and personal paths, Content-Security-Policy with tests, GitHub link in the toolbar
 - [ ] Make the repo public; turn on private vulnerability reporting (Settings → Security)
