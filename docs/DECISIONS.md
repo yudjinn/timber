@@ -17,9 +17,9 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
 ## D-002 · SSH runs natively in a Tauri backend
 - **Status:** Accepted · 2026-10-21. Supersedes two rejected approaches.
 - **Decision:** russh runs in the Tauri backend and opens TCP connections directly.
-- **Rejected 1: a native helper server that runs the system `ssh` binary.** You wanted SSH to happen inside the app, not by shelling out.
+- **Rejected 1: a native helper server that runs the system `ssh` binary.** The goal is SSH inside the app, not shelling out to another program.
 - **Rejected 2: russh compiled to wasm, behind a WebSocket↔TCP relay**, the model used by [sshclient-wasm](https://github.com/VerdigrisTech/sshclient-wasm). russh does build for `wasm32-unknown-unknown` (verified with russh 0.64.1 and `ring`). But a browser cannot listen on or open TCP sockets, so the relay can't live inside the wasm. Chrome's Direct Sockets API is limited to Isolated Web Apps. That would have meant shipping a relay binary alongside the UI anyway.
-- **Why:** You want one reliable application. Native SSH removes the relay entirely and gives us ssh-agent, `~/.ssh/config` and `known_hosts`.
+- **Why:** One reliable application, with no separate helper to ship. Native SSH removes the relay entirely and gives us ssh-agent, `~/.ssh/config` and `known_hosts`.
 
 ## D-003 · Tauri v2 desktop app, cross-platform
 - **Status:** Accepted · 2026-10-21
@@ -35,7 +35,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Leptos 0.8, client-side rendering, built with trunk.
   - The graph is a `<canvas>` inside a Leptos component, driven by a `requestAnimationFrame` loop.
   - Leptos signals only hold what's visible and selected, never per-frame positions.
-- **Why:** You prefer Leptos. A canvas stays smooth with hundreds of animated nodes, where reactive DOM/SVG updates wouldn't.
+- **Why:** Leptos keeps the whole UI in Rust, sharing types with the core. A canvas stays smooth with hundreds of animated nodes, where reactive DOM/SVG updates wouldn't.
 
 ## D-005 · A web build of the same UI, with desktop features greyed out
 - **Status:** Accepted · 2026-10-21
@@ -87,7 +87,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Active boards come from evaluating the dts Makefiles' `dtb-$(CONFIG_…)` lines against a config. The config can be a `.config`/defconfig, `/proc/config.gz` read over SSH, or a Yocto `KERNEL_DEVICETREE` line.
   - When connected over SSH, the board whose `compatible` matches the device is selected automatically.
   - We don't parse the full Kconfig language.
-- **Why:** You want to open BSP folders and see the "active" layout. The Makefiles plus `.config` values are what actually decide which boards get built.
+- **Why:** Opening a BSP folder should show the "active" layout. The Makefiles plus `.config` values are what actually decide which boards get built.
 
 ## D-011 · Interaction: drill-down popup and global search
 - **Status:** Accepted · 2026-10-21
@@ -151,7 +151,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - any number of source folders and files
 
   When a DTB is shown and sources exist, the app matches the DTB to a board by root `compatible`/`model`, compiles that board, and maps nodes by path. That gives DTB nodes source locations, "differs from source" markers (references compared by target path), "not in source" and "only in source". Details are in DESIGN §7a.
-- **Why:** You want to load a DTB *and* point at kernel/BSP directories, both to find where things are defined and to compare.
+- **Why:** The common workflow is a DTB *plus* the kernel/BSP directories it came from, both to find where things are defined and to compare.
 - **Scope:** This brings the folder half of M4 and a light version of M6 forward, ahead of the Tauri shell (M3), as a new milestone M2b.
 
 ## D-019 · Image export: SVG and PNG
@@ -160,7 +160,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - The Export menu offers SVG (vector, for documentation) and PNG (2×, for sharing), alongside `.dts`/`.dtb`.
   - Defaults: the whole web, light theme, legend and title included.
   - One `Painter`-based drawing routine renders the screen, PNG and SVG.
-- **Why:** You want people to be able to share views and put them in documentation.
+- **Why:** Views get shared between people and put into documentation.
 
 ## D-020 · Shortcuts popup on first visit
 - **Status:** Accepted · 2026-10-21
@@ -179,7 +179,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - labels from the source for DTBs without `__symbols__`
 
   Details are in DESIGN §7a.
-- **Why:** Custom boards frequently keep an EVK's `compatible`, have variants that share one, or live in Yocto layers and vendor kernels with unusual layouts. A content score makes the custom board win over the EVK it was copied from. You said that Yocto is the common case, that BSP/vendor kernels vary wildly (so the override and folder sourcing are what matter most), and that U-Boot is the only boot-time patcher to assume for now.
+- **Why:** Custom boards frequently keep an EVK's `compatible`, have variants that share one, or live in Yocto layers and vendor kernels with unusual layouts. A content score makes the custom board win over the EVK it was copied from. Yocto is the common case, and BSP/vendor kernels vary wildly, so the override and folder sourcing matter most. U-Boot is the only boot-time patcher assumed for now.
 - **Validation:** The cheap scan, which follows `#include`s for variant boards, agrees with a full compile for 3,317 of 3,326 kernel arm64/arm boards. The rest declare no root `compatible` anywhere in their own sources, or build it from a macro. Content scoring covers those.
 
 ## D-022 · Web build: read folders in place where the browser allows
@@ -191,7 +191,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
     - Entries get a **Reload** button that re-reads them after edits, asking for permission again if it lapsed.
   - **Firefox/Safari:** the `webkitdirectory` picker stays as the fallback.
   - **Wording:** the Sources panel says plainly that files never leave the computer. With the fallback it explains that the browser's "upload" wording is misleading.
-- **Why:** You noticed Chrome's "Upload 8,000+ files?" prompt. Nothing is uploaded, but the wording is alarming, and the old picker listed every file in the folder. A page still can't open a path without a picker; true direct access is the desktop app (M3).
+- **Why:** Chrome's folder picker asks "Upload 8,000+ files?". Nothing is uploaded, but the wording is alarming, and the old picker listed every file in the folder. A page still can't open a path without a picker; true direct access is the desktop app (M3).
 - **Known gap:** Not verified on a real disk: whether Chromium's directory API follows **symlinked** files, such as `include/dt-bindings/input/linux-event-codes.h` → `uapi`. Boards that include those headers may report a missing include in the web build. The desktop app reads the disk directly and isn't affected.
 
 ## D-023 · Differences from source are visible everywhere, all treated alike
@@ -203,7 +203,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - **Toolbar:** "N differ from source", which **shows the differences**: every differing node is added to the web and the view is fitted.
   - **Sources panel:** a summary with the same "Show differences" action.
 - **U-Boot differences** (D-021) are treated like any other difference. The "likely set by U-Boot" chip stays in the node panel as information only.
-- **Why:** You asked what signified that `/chosen` was different. Only the property rows in the node panel did, so differences were invisible on the graph.
+- **Why:** Only the property rows in the node panel showed that a node like `/chosen` differed, so differences were invisible on the graph.
 - **Markers are text pills** ("Δ2", "new"), not coloured dots, so they stay distinguishable on yellow (clock) and red (memory) nodes.
 
 ## D-024 · Compile like `dtc -@` when the DTB was built that way
@@ -235,7 +235,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - **With no template**, the file opens with the OS default application: `xdg-open`, `open`, or `start`.
   - **Examples for common editors and terminals** are in `docs/EDITORS.md`.
   - **The web build** shows "Open in editor" greyed out.
-- **Why:** You'd rather keep it generic and document the options than hard-code them. A template covers any editor/terminal combination without Timber having to guess.
+- **Why:** Generic and documented beats hard-coded editor support. A template covers any editor/terminal combination without Timber having to guess.
 
 ## D-027 · Overlays attach in two places
 - **Status:** Accepted · 2026-10-22. Refines D-009.
@@ -262,12 +262,12 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
     - `-p`, `-l`, `-i`, and `-o Port/User/IdentityFile/ConnectTimeout`
   - **Anything else** is reported as unsupported.
   - **`ProxyJump`/`ProxyCommand` in `~/.ssh/config`** work the same way.
-- **Why:** You asked for "extra args" to cover things like ProxyJump. Timber's SSH client is russh, not the `ssh` binary, so the options are interpreted rather than passed through. A proxy command covers jump hosts and anything more unusual.
+- **Why:** Reaching devices often needs extra connection options, such as a jump host. Timber's SSH client is russh, not the `ssh` binary, so the options are interpreted rather than passed through. A proxy command covers jump hosts and anything more unusual.
 
 ## D-030 · The device's kernel config is offered, never applied silently
 - **Status:** Accepted · 2026-10-22
 - **Decision:** After connecting, if the device has `/proc/config.gz`, Timber always asks: "Use this device's kernel config?"
-- **Why:** You asked for that. A config silently replacing the one you chose would be surprising.
+- **Why:** A config silently replacing the one the user chose would be surprising.
 
 ## D-031 · Live devices: Refresh and auto-refresh
 - **Status:** Accepted · 2026-10-22
@@ -284,7 +284,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - **Compare with…** replaces B with another DTB, a board from the sources, or a snapshot of a live device. **Back to source** returns to the default.
   - The choice stays when the tree shown changes, so a series of DTBs can be checked against one reference.
   - Everything that shows differences (markers, pills, the toolbar count, the panel) uses whichever B is active.
-- **Why:** You asked for one diff concept with "from source" as the default. Two diff systems on screen at once would compete for the same markers.
+- **Why:** One concept of differences, with "from source" as the default, is easier to follow. Two diff systems on screen at once would compete for the same markers.
 
 ## D-033 · Nodes only in B are drawn as ghosts
 - **Status:** Accepted · 2026-10-23
@@ -300,12 +300,12 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - **Take snapshot** on the live bar freezes the device's current tree and starts comparing with it, so later refreshes show what changed since (loading a module, applying an overlay at runtime).
   - Snapshots stay listed under **Compare with** for the session.
   - When a refresh finds the tree changed, the notice offers **Compare with previous**.
-- **Why:** You asked for both. Before/after on a running board is the main reason to diff live trees.
+- **Why:** Before/after on a running board is the main reason to diff live trees.
 
 ## D-035 · The differences summary copies as Markdown
 - **Status:** Accepted · 2026-10-23
 - **Decision:** The summary lists changed nodes (with a table of differing properties), nodes only in A, and nodes only in B. **Copy as Markdown** puts it on the clipboard.
-- **Why:** You asked for Markdown. It pastes into bug trackers, pull requests and chat, and still reads as plain text.
+- **Why:** Markdown pastes into bug trackers, pull requests and chat, and still reads as plain text.
 
 ## D-036 · Cached UI, checked for newer builds
 - **Status:** Accepted · 2026-10-23
@@ -315,7 +315,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
     - **Desktop, dev mode** (UI from `trunk serve`): reloads straight away, once per new build.
     - **Desktop, release:** the UI is inside the binary, so there's nothing to check.
     - **Web:** checks on load, when the window regains focus, and every 15 minutes. A newer build shows "A new version of Timber is available" with **Reload** and **Later**. **Later** leaves a small **Update available** badge in the top left and stops checking until the next load.
-- **Why:** You asked for caching that notices when it's out of date. The desktop webview had kept serving an old build from its cache. Reloading the web build loses open files, which a browser can't re-read without asking, so it asks rather than forcing it.
+- **Why:** Caching should keep loads fast without ever running an old build. The desktop webview had kept serving an old build from its cache. Reloading the web build loses open files, which a browser can't re-read without asking, so it asks rather than forcing it.
 
 ## D-037 · CI on Linux and Windows, private repo
 - **Status:** Accepted · 2026-10-23. The repo going public (D-040) removes the minutes limit; the rest stands.
@@ -333,7 +333,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Pushing a tag `vX.Y.Z` builds Linux x86_64 (AppImage, .deb) and Windows (.msi, NSIS .exe) into a **draft** GitHub Release, after CI passes. The tag must match the app's version.
   - The builds are unsigned. No macOS builds and no arm64 builds for now.
   - No in-app updater for now.
-- **Why:** Your choices. Signing needs paid certificates, and unsigned builds only cost a warning on first run. Drafts let you check a release before anyone sees it.
+- **Why:** Signing needs paid certificates, and unsigned builds only cost a warning on first run. Drafts allow a check before a release is visible. macOS and arm64 builds wait until someone asks for them.
 
 ## D-039 · The web build is hosted on Cloudflare Workers (static assets)
 - **Status:** Accepted · 2026-10-23
@@ -342,7 +342,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - It needs the secrets `CLOUDFLARE_API_TOKEN` (the "Edit Cloudflare Workers" template) and `CLOUDFLARE_ACCOUNT_ID`. The Worker's name comes from the repository variable `CLOUDFLARE_WORKER_NAME` (default `timber`).
   - Caching (D-036): Workers already serves assets as "cache, revalidate every time", which suits the page. `_headers` caches the hashed build files for a year as immutable. `.assetsignore` keeps trunk's lock file out.
   - Workers limits a single asset to 25 MiB. The release wasm is about 1.5 MB, but a debug build (about 48 MB) can't be deployed.
-- **Why:** You chose Cloudflare, and Workers static assets is its current path for static sites; Pages is no longer where new features go. Unlike GitHub Pages, it supports custom headers and works with a private repo.
+- **Why:** Workers static assets is Cloudflare's current path for static sites; Pages is no longer where new features go. Unlike GitHub Pages, it supports custom headers and works with a private repo.
 
 ## D-040 · Open source under MIT
 - **Status:** Accepted · 2026-10-23
@@ -351,7 +351,7 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - Before publishing, the history was checked: no keys, tokens, local paths or large files. The commit identity is a coding address, in metadata only.
   - Vulnerabilities are reported privately through GitHub (`SECURITY.md`).
   - macOS builds still only if asked for.
-- **Why:** People will open confidential BSPs and device trees in it. Being able to read the source, build it themselves and host it internally is what makes that trustworthy. You don't plan to charge for it, so a permissive licence gets the most use. The test fixtures were written for Timber, and no kernel sources are included (D-014).
+- **Why:** People will open confidential BSPs and device trees in it. Being able to read the source, build it themselves and host it internally is what makes that trustworthy. Timber isn't sold, so a permissive licence gets the most use. The test fixtures were written for Timber, and no kernel sources are included (D-014).
 
 ## D-041 · A strict Content-Security-Policy
 - **Status:** Accepted · 2026-10-23

@@ -71,7 +71,7 @@ Timber is a device tree viewer. It loads a device tree from a compiled blob, fro
 
 - **Native SSH.** A browser can't open TCP connections, so a browser-only app would need a relay. Doing SSH natively removes the relay and gives us ssh-agent, `~/.ssh/config` and `known_hosts`.
 - **Full filesystem access.** We get folder watching (recompile when a `.dtsi` is saved) and can launch your editor at `file:line`.
-- **The UI stays Rust/wasm and Leptos**, which you prefer. The same UI also serves as the web build.
+- **The UI stays Rust/wasm and Leptos**, keeping the whole app in Rust. The same UI also serves as the web build.
 
 **Accepted cost:** on Linux the app depends on the system WebKitGTK. The AppImage bundles it; `.deb`/`.rpm` users need `libwebkit2gtk-4.1`.
 
