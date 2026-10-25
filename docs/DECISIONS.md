@@ -370,3 +370,10 @@ Status values: **Accepted**, **Proposed** (awaiting sign-off), **Superseded by D
   - `tests/ui/specs/csp.spec.js` checks that fetch, images, beacons, WebSockets and forms to other origins are blocked. Every other spec runs under the policy too, and a violation fails it.
 - **Why:** "Nothing is uploaded" becomes something the browser enforces, and anyone can check it from the page, without reading the source. A meta tag works everywhere the page runs (Cloudflare, the desktop app, the test server); a header would only cover one host. A CSP can't stop the page from navigating itself to another site, so it narrows the ways out rather than closing every one. Code review covers the rest.
 
+## D-042 · SSH on the web build offers the desktop download
+- **Status:** Accepted · 2026-10-25
+- **Decision:**
+  - On the web build, **SSH** and *Connect to a device…* open a "Get the desktop app" dialog instead of a toast. It says why SSH needs the desktop app and links to `<repository>/releases/latest` in a new tab. The URL comes from the workspace's `repository` field.
+  - The SSH button is no longer `aria-disabled`, since it now does something; it keeps the dimmed look and the "Desktop" badge.
+- **Why:** A toast says no and leaves people stuck; the dialog shows them where to get the app. GitHub's `/releases/latest` always redirects to the newest published release, so the link never needs updating and the page doesn't fetch anything (`connect-src 'self'` stays, D-041). Following a link is navigation, which the CSP doesn't cover.
+- **Rejected:** asking the GitHub API for the release's file links, which would need `connect-src api.github.com` and pick a file per platform; a draft or private release isn't visible either way.

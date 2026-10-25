@@ -88,6 +88,17 @@ To release:
 - **Windows:** SmartScreen warns on first run; choose *More info* → *Run anyway*.
 - **Linux:** `chmod +x Timber_*.AppImage` before running it. Or install the .deb with `sudo apt install ./timber_*.deb`.
 
+## How Timber was built
+
+Timber was written with [Claude Code](https://claude.com/claude-code), Anthropic's AI coding tool, and the commits credit it as co-author. I designed Timber and reviewed the work: each feature was talked through before it was built, and every decision is recorded in [`docs/DECISIONS.md`](docs/DECISIONS.md) with the reasons and the alternatives that were rejected.
+
+The tests are there so you don't have to take that on trust:
+- **Device tree compiler:** compiled trees are compared node for node with `cpp | dtc` output, across every board and overlay in a Linux kernel checkout.
+- **SSH:** tested against a real, throwaway `sshd`.
+- **UI:** end-to-end tests of the web build in headless Chromium, including checks that the Content-Security-Policy blocks connections to other sites.
+
+The commands to run them are under [Development](#development).
+
 ## License
 
 [MIT](LICENSE). Timber reads Linux kernel sources at runtime and in its tests, but none are included in this repository.

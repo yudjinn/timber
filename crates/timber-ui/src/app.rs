@@ -136,9 +136,11 @@ pub fn App() -> impl IntoView {
                 || state.sources_open.get_untracked()
                 || state.settings_open.get_untracked()
                 || state.ssh.open.get_untracked()
+                || state.ssh.get_desktop.get_untracked()
                 || state.choose.with_untracked(Option::is_some))
         {
             state.ssh.open.set(false);
+            state.ssh.get_desktop.set(false);
             state.help_open.set(false);
             state.sources_open.set(false);
             state.settings_open.set(false);
@@ -235,6 +237,7 @@ pub fn App() -> impl IntoView {
             <SourceDrawer />
             <SettingsDialog />
             <crate::ssh::ConnectDialog />
+            <crate::ssh::GetDesktop />
             <crate::ssh::ConfigOffer />
             <ChooseMain />
             <SourcesPanel />

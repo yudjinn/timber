@@ -114,6 +114,18 @@ button.link {
   word-break: break-all;
 }
 button.link:hover { text-decoration: underline; background: none; }
+a.button {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 11px;
+  color: var(--text);
+  background: var(--surface);
+  text-decoration: none;
+  white-space: nowrap;
+}
+a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+a.button.primary:hover { filter: brightness(1.08); }
 
 input[type="text"], input[type="search"] {
   font: inherit;

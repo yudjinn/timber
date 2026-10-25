@@ -43,6 +43,8 @@ pub enum LiveStatus {
 #[derive(Clone, Copy)]
 pub struct SshState {
     pub open: RwSignal<bool>,
+    /// Web build: SSH was asked for, so offer the desktop app instead.
+    pub get_desktop: RwSignal<bool>,
     pub live: RwSignal<Option<LiveDevice>>,
     pub status: RwSignal<LiveStatus>,
     /// Auto-refresh interval in seconds; 0 is off.
@@ -60,6 +62,7 @@ impl SshState {
     pub fn new() -> Self {
         SshState {
             open: RwSignal::new(false),
+            get_desktop: RwSignal::new(false),
             live: RwSignal::new(None),
             status: RwSignal::new(LiveStatus::Refreshing),
             auto: RwSignal::new(0),
@@ -411,6 +414,44 @@ fn recent_detail(r: &SshRequest) -> String {
 }
 
 // ---- views ----
+
+/// GitHub sends this to the newest published release.
+const DOWNLOAD_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/releases/latest");
+
+/// Web build: what SSH needs, and where to get the desktop app.
+#[component]
+pub fn GetDesktop() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let close = move || state.ssh.get_desktop.set(false);
+    view! {
+        <Show when=move || state.ssh.get_desktop.get()>
+            <div class="modal-backdrop" on:click=move |_| close()>
+                <div class="modal" role="dialog" aria-label="Get the desktop app" on:click=|ev| ev.stop_propagation()>
+                    <header class="modal-head">
+                        <h3>"Get the desktop app"</h3>
+                        <button class="ghost" aria-label="Close" on:click=move |_| close()>"✕"</button>
+                    </header>
+                    <p>
+                        "Browsers can't open network connections to your devices, so reading a live device tree over SSH needs the desktop app."
+                    </p>
+                    <p class="muted small">"It also opens sources in your editor. Builds for Linux and Windows are on GitHub."</p>
+                    <div class="modal-foot">
+                        <button class="ghost" on:click=move |_| close()>"Not now"</button>
+                        <a
+                            class="button primary"
+                            href=DOWNLOAD_URL
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            on:click=move |_| close()
+                        >
+                            "Download from GitHub"
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </Show>
+    }
+}
 
 #[component]
 pub fn ConnectDialog() -> impl IntoView {

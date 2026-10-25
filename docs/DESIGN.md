@@ -143,7 +143,7 @@ trait Backend {
 | SSH: live tree, `/proc/config.gz` | ✅ | ❌ greyed out: *Requires the desktop app* |
 | Live vs source diff | ✅ | ⚠️ only against a live tree loaded from a `.dtb` file (e.g. one you exported earlier) |
 
-Disabled controls stay visible, with a tooltip and a small "Desktop" badge. Clicking one explains why it's unavailable and links to the desktop download.
+Disabled controls stay visible, with a tooltip and a small "Desktop" badge. **SSH** and *Connect to a device…* open a "Get the desktop app" dialog that explains why and links to the latest GitHub release ([D-042](DECISIONS.md)).
 
 ### Where compilation happens
 

@@ -108,3 +108,22 @@ test("source viewer: open from a property, follow #include and &label, go back",
   // Opening in an editor needs the desktop app.
   await expect(page.locator(".source-drawer").getByRole("button", { name: "Open in editor" })).toHaveAttribute("title", /desktop app/);
 });
+
+test("the web build offers the desktop app for SSH", async ({ page }) => {
+  await start(page);
+  const dialog = page.getByRole("dialog", { name: "Get the desktop app" });
+  const download = dialog.getByRole("link", { name: "Download from GitHub" });
+
+  await page.getByRole("button", { name: /^SSH/ }).click();
+  await expect(download).toHaveAttribute("href", "https://github.com/yudjinn/timber/releases/latest");
+  await expect(download).toHaveAttribute("target", "_blank");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole("button", { name: /^Sources/ }).click();
+  await page.getByRole("button", { name: "Connect to a device…" }).click();
+  await expect(page.locator(".modal.sources")).toHaveCount(0);
+  await expect(download).toBeVisible();
+  await dialog.getByRole("button", { name: "Not now" }).click();
+  await expect(dialog).toHaveCount(0);
+});

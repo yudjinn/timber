@@ -224,16 +224,12 @@ pub fn Toolbar() -> impl IntoView {
                     </button>
                     <button
                         class:unavailable=!desktop
-                        aria-disabled=(!desktop).to_string()
                         title=if desktop { "Connect to a device over SSH" } else { "Requires the desktop app" }
                         on:click=move |_| {
                             if desktop {
                                 state.ssh.open.set(true);
                             } else {
-                                state.notify(
-                                    "SSH requires the desktop app: browsers can't open network connections to your devices.",
-                                    false,
-                                );
+                                state.ssh.get_desktop.set(true);
                             }
                         }
                     >

@@ -467,11 +467,11 @@ pub fn SourcesPanel() -> impl IntoView {
                                 class:unavailable=!state.capabilities.desktop
                                 title=if state.capabilities.desktop { "Read a running device's tree over SSH" } else { "Requires the desktop app" }
                                 on:click=move |_| {
+                                    state.sources_open.set(false);
                                     if state.capabilities.desktop {
-                                        state.sources_open.set(false);
                                         state.ssh.open.set(true);
                                     } else {
-                                        state.notify("SSH requires the desktop app.", false);
+                                        state.ssh.get_desktop.set(true);
                                     }
                                 }
                             >
