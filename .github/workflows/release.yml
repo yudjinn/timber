@@ -18,7 +18,7 @@ jobs:
     name: Tag matches the version
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: .github/scripts/check-version.sh "$GITHUB_REF_NAME"
 
   ci:
@@ -39,7 +39,7 @@ jobs:
             bundles: msi,nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

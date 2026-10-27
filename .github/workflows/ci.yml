@@ -33,7 +33,7 @@ jobs:
         os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -68,7 +68,7 @@ jobs:
     name: UI (Playwright)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -83,7 +83,7 @@ jobs:
       - name: dtc
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
       - name: Kernel cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/linux
           key: kernel-${{ env.KERNEL_TAG }}
@@ -91,7 +91,7 @@ jobs:
         run: .github/scripts/fetch-kernel.sh "$KERNEL_TAG" ~/linux
       - name: Build the web UI
         run: trunk build
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -105,7 +105,7 @@ jobs:
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Browser cache
         id: browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ steps.playwright.outputs.version }}-chromium
@@ -121,7 +121,7 @@ jobs:
         run: TIMBER_KERNEL_DIR=~/linux npx playwright test
       - name: Report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
